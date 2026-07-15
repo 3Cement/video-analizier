@@ -10,9 +10,11 @@ cp .env.example .env
 # na serwerach cloud często potrzebny YTDLP_PROXY lub YTDLP_COOKIES
 
 docker compose up --build
+# uruchamia api (WORKER_MODE=true) + worker
 ```
 
-UI: http://localhost:8000
+UI: http://localhost:8000  
+Ustaw `PUBLIC_BASE_URL=https://twoja-domena` dla poprawnych OG/canonical na stronach `/s/...`.
 
 ## Render.com (Docker)
 
