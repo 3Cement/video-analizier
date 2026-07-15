@@ -31,6 +31,8 @@ const el = {
   llmProvider: document.getElementById("llm-provider"),
   llmStatusLine: document.getElementById("llm-status-line"),
   shareBtn: document.getElementById("share-btn"),
+  extractFactsBtn: document.getElementById("extract-facts-btn"),
+  summarizeBtn: document.getElementById("summarize-btn"),
   exportMdBtn: document.getElementById("export-md-btn"),
   shareUrlLine: document.getElementById("share-url-line"),
   quotaLine: document.getElementById("quota-line"),
@@ -292,8 +294,19 @@ async function selectSource(id, resetAnswer = true) {
     el.resultLink.hidden = true;
   }
 
-  const latestSummary = (detail.summaries || []).at(-1);
-  state.summaryText = latestSummary?.content || "";
+  const briefingSummary = (detail.summaries || []).find((s) => s.kind === "briefing");
+  const factsSummary = (detail.summaries || []).find((s) => s.kind === "facts");
+  let summaryText = "";
+  if (briefingSummary && factsSummary) {
+    summaryText = `${briefingSummary.content}
+
+---
+
+${factsSummary.content}`;
+  } else {
+    summaryText = (briefingSummary || factsSummary || (detail.summaries || []).at(-1))?.content || "";
+  }
+  state.summaryText = summaryText;
   const detailKey = `${detail.id}:${detail.status}:${detail.updated_at}:${state.summaryText.length}:${(detail.segments || []).length}`;
   if (detailKey !== state.lastDetailKey) {
     state.lastDetailKey = detailKey;
@@ -315,6 +328,8 @@ async function selectSource(id, resetAnswer = true) {
   el.forceAsrBtn.hidden = detail.status !== "ready" || detail.source_type !== "youtube";
   el.shareBtn.hidden = detail.status !== "ready";
   el.exportMdBtn.hidden = detail.status !== "ready";
+  if (el.extractFactsBtn) el.extractFactsBtn.hidden = detail.status !== "ready";
+  if (el.summarizeBtn) el.summarizeBtn.hidden = detail.status !== "ready";
   el.deleteBtn.hidden = false;
   if (detail.share_slug) {
     el.shareUrlLine.hidden = false;
@@ -356,7 +371,7 @@ async function reprocessSource({ forceAsr = false } = {}) {
       body: JSON.stringify({
         prefer_captions: !forceAsr,
         force_asr: forceAsr,
-        auto_summarize: true,
+        auto_summarize: wantsAutoSummarize(),
       }),
     });
     await refreshSources();
@@ -365,6 +380,15 @@ async function reprocessSource({ forceAsr = false } = {}) {
     setStatus(err.message);
     setBusy(false);
   }
+}
+
+function wantsAutoSummarize() {
+  const box = document.getElementById("transcript-only");
+  return !(box && box.checked);
+}
+
+function isYoutubeUrl(url) {
+  return /(?:youtube\.com|youtu\.be)\//i.test(url || "");
 }
 
 async function deleteSelectedSource() {
@@ -390,13 +414,17 @@ document.getElementById("youtube-form").addEventListener("submit", async (e) => 
     setError(null);
     el.steps.hidden = false;
     updateSteps("downloading");
-    const created = await api("/sources/youtube", {
+    const url = el.youtubeUrl.value.trim();
+    const auto_summarize = wantsAutoSummarize();
+    const endpoint = isYoutubeUrl(url) ? "/sources/youtube" : "/sources/url";
+    setStatus(isYoutubeUrl(url) ? "Startuję analizę YouTube…" : "Startuję analizę URL…");
+    const created = await api(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        url: el.youtubeUrl.value.trim(),
+        url,
         language: "pl",
-        auto_summarize: true,
+        auto_summarize,
       }),
     });
     state.selectedId = created.id;
@@ -416,7 +444,7 @@ document.getElementById("upload-form").addEventListener("submit", async (e) => {
     const body = new FormData();
     body.append("file", file);
     body.append("language", "pl");
-    body.append("auto_summarize", "true");
+    body.append("auto_summarize", wantsAutoSummarize() ? "true" : "false");
     setBusy(true);
     setStatus("Wgrywanie pliku…");
     setError(null);
@@ -631,7 +659,7 @@ document.getElementById("playlist-form").addEventListener("submit", async (e) =>
     const created = await api("/sources/playlist", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ urls, language: "pl", auto_summarize: true }),
+      body: JSON.stringify({ urls, language: "pl", auto_summarize: wantsAutoSummarize() }),
     });
     state.selectedId = created[0]?.id || state.selectedId;
     await loadQuota();
@@ -651,3 +679,93 @@ refreshSources()
     if (ready) return selectSource(ready.id);
   })
   .catch((e) => setStatus(e.message));
+
+
+document.getElementById("article-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    setBusy(true);
+    setStatus("Pobieranie artykułu…");
+    setError(null);
+    const created = await api("/sources/article", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: document.getElementById("article-url").value.trim(),
+        language: "pl",
+        auto_summarize: wantsAutoSummarize(),
+      }),
+    });
+    state.selectedId = created.id;
+    await refreshSources();
+    await selectSource(created.id);
+  } catch (err) {
+    setStatus(err.message);
+    setBusy(false);
+  }
+});
+
+document.getElementById("podcast-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    const url = document.getElementById("podcast-url").value.trim();
+    const maxEpisodes = Number(document.getElementById("podcast-max").value || 3);
+    const looksRss = /rss|feed|atom|xml/i.test(url);
+    setBusy(true);
+    setStatus(looksRss ? "Parsowanie RSS podcastu…" : "Pobieranie odcinka…");
+    setError(null);
+    let created;
+    if (looksRss) {
+      const items = await api("/sources/podcast/rss", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          feed_url: url,
+          max_episodes: maxEpisodes,
+          language: "pl",
+          auto_summarize: wantsAutoSummarize(),
+        }),
+      });
+      created = items[0];
+    } else {
+      created = await api("/sources/podcast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url,
+          language: "pl",
+          auto_summarize: wantsAutoSummarize(),
+        }),
+      });
+    }
+    if (!created) throw new Error("Nie utworzono źródła podcastu");
+    state.selectedId = created.id;
+    await refreshSources();
+    await selectSource(created.id);
+  } catch (err) {
+    setStatus(err.message);
+    setBusy(false);
+  }
+});
+
+async function runSummarizeKind(kind) {
+  if (!state.selectedId) return;
+  try {
+    setBusy(true);
+    setStatus(kind === "facts" ? "Wyciąganie danych…" : "Generowanie podsumowania…");
+    await api(`/sources/${state.selectedId}/summarize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind }),
+    });
+    await selectSource(state.selectedId);
+    setStatus(kind === "facts" ? "Ekstrakcja danych gotowa." : "Podsumowanie gotowe.");
+  } catch (err) {
+    setStatus(err.message);
+  } finally {
+    setBusy(false);
+  }
+}
+
+document.getElementById("extract-facts-btn")?.addEventListener("click", () => runSummarizeKind("facts"));
+document.getElementById("summarize-btn")?.addEventListener("click", () => runSummarizeKind("briefing"));

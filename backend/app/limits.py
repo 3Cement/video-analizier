@@ -14,13 +14,25 @@ class DurationLimitError(Exception):
     pass
 
 
-def check_duration_limit(duration_seconds: float | None, settings: Settings) -> None:
-    max_seconds = settings.max_video_duration_seconds
-    if max_seconds <= 0 or duration_seconds is None:
+def check_duration_limit(
+    duration_seconds: float | None,
+    settings: Settings,
+    *,
+    kind: str = "video",
+) -> None:
+    if duration_seconds is None:
+        return
+    if kind == "audio":
+        max_seconds = settings.max_audio_duration_seconds
+        label = "Audio"
+    else:
+        max_seconds = settings.max_video_duration_seconds
+        label = "Video"
+    if max_seconds <= 0:
         return
     if duration_seconds > max_seconds:
         minutes = int(max_seconds // 60)
-        raise DurationLimitError(f"Video exceeds maximum duration ({minutes} minutes).")
+        raise DurationLimitError(f"{label} exceeds maximum duration ({minutes} minutes).")
 
 
 def enforce_daily_source_limit(db: Session, user_id: str, settings: Settings) -> None:
@@ -40,8 +52,13 @@ def enforce_daily_source_limit(db: Session, user_id: str, settings: Settings) ->
         )
 
 
-def enforce_duration_limit(duration_seconds: float | None, settings: Settings) -> None:
+def enforce_duration_limit(
+    duration_seconds: float | None,
+    settings: Settings,
+    *,
+    kind: str = "video",
+) -> None:
     try:
-        check_duration_limit(duration_seconds, settings)
+        check_duration_limit(duration_seconds, settings, kind=kind)
     except DurationLimitError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

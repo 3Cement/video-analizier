@@ -134,6 +134,17 @@ def _extractive_briefing(
             f"{joined}\n"
         )
 
+    if kind == "facts":
+        facts = takeaways if takeaways else [f"- [{format_timestamp(s)}] {t}" for s, _e, t in picks[:8]]
+        return (
+            f"# Ekstrakcja danych: {title or 'Źródło'}\n\n"
+            f"{note}\n\n"
+            "## Fakty / liczby / tezy\n"
+            + ("\n".join(facts) if facts else "- (brak)")
+            + "\n\n## Fragmenty źródłowe\n"
+            + f"{joined}\n"
+        )
+
     takeaways_block = "\n".join(takeaways) if takeaways else "- (brak)"
     return (
         f"# Podsumowanie: {title or 'Źródło'}\n\n"
@@ -192,6 +203,14 @@ def summarize_segments(
         ),
         "faq": "Create an FAQ with 5-8 questions and answers grounded in the source, with timestamps.",
         "study_guide": "Create a study guide: main themes, definitions, and review questions with timestamps.",
+        "facts": (
+            "Extract structured data from the source in Polish with sections:\n"
+            "1) Tematy / osoby / miejsca\n"
+            "2) Liczby, daty, dawki, czasy\n"
+            "3) Definicje i kluczowe tezy with timestamps\n"
+            "4) List of actionable items\n"
+            "Use bullet points and timestamp citations. Do not invent facts."
+        ),
     }.get(kind, "Summarize the source with timestamp citations.")
 
     user_prompt = (

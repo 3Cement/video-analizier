@@ -121,17 +121,21 @@
         </details>
 
         <form id="youtube-form" class="hero-form">
-          <label class="sr-only" for="youtube-url">Link YouTube</label>
+          <label class="sr-only" for="youtube-url">Link YouTube / artykuł / podcast</label>
           <input
             id="youtube-url"
             name="url"
             type="url"
             required
             autocomplete="off"
-            placeholder="https://www.youtube.com/watch?v=..."
+            placeholder="YouTube, artykuł, RSS lub plik MP3…"
           />
-          <button id="submit-btn" type="submit">Podsumuj film</button>
+          <button id="submit-btn" type="submit">Analizuj</button>
         </form>
+        <label class="checkbox-row">
+          <input id="transcript-only" type="checkbox" />
+          Tylko transkrypt (bez podsumowania LLM)
+        </label>
         <p id="status-line" class="status" aria-live="polite">Gotowe do analizy.</p>
         <p id="error-box" class="error-box" hidden></p>
         <ol id="steps" class="steps" hidden>
@@ -161,8 +165,10 @@
           <button id="force-asr-btn" class="ghost" type="button" hidden>Force ASR (Whisper)</button>
           <button id="share-btn" class="ghost" type="button" hidden>Udostępnij</button>
           <button id="export-md-btn" class="ghost" type="button" hidden>Eksport MD</button>
+          <button id="extract-facts-btn" class="ghost" type="button" hidden>Wyciągnij dane</button>
+          <button id="summarize-btn" class="ghost" type="button" hidden>Wygeneruj podsumowanie</button>
           <button id="delete-btn" class="ghost danger" type="button" hidden>Usuń</button>
-          <button id="ask-toggle" class="ghost" type="button">Zadaj pytanie do filmu</button>
+          <button id="ask-toggle" class="ghost" type="button">Zadaj pytanie</button>
           <button id="transcript-toggle" class="ghost" type="button">Pokaż transkrypt</button>
           <button id="copy-summary" class="ghost" type="button">Kopiuj podsumowanie</button>
         </div>
@@ -197,11 +203,29 @@
       </section>
 
       <details class="more-sources">
-        <summary>Inne źródła i playlista</summary>
+        <summary>Inne źródła: artykuł, podcast, książka, playlista</summary>
         <div class="more-grid">
+          <form id="article-form" class="form">
+            <label>
+              Artykuł (URL strony)
+              <input id="article-url" type="url" required placeholder="https://example.com/post" />
+            </label>
+            <button type="submit">Pobierz artykuł</button>
+          </form>
+          <form id="podcast-form" class="form">
+            <label>
+              Podcast: odcinek lub RSS
+              <input id="podcast-url" type="url" required placeholder="https://…/episode.mp3 lub RSS" />
+            </label>
+            <label>
+              Max odcinków z RSS
+              <input id="podcast-max" type="number" min="1" max="20" value="3" />
+            </label>
+            <button type="submit">Transkrybuj podcast</button>
+          </form>
           <form id="playlist-form" class="form">
             <label>
-              Playlista (jeden URL w linii)
+              Playlista YouTube (jeden URL w linii)
               <textarea
                 id="playlist-urls"
                 rows="4"
@@ -212,8 +236,8 @@
           </form>
           <form id="upload-form" class="form">
             <label>
-              Plik PDF / TXT / audio
-              <input id="upload-file" name="file" type="file" required />
+              Plik: PDF / EPUB / TXT / audio / audiobook
+              <input id="upload-file" name="file" type="file" accept=".pdf,.epub,.txt,.md,.mp3,.m4a,.m4b,.wav,.ogg,.opus,.flac,.aac,.mp4,.mkv,.webm" required />
             </label>
             <button type="submit">Wgraj i analizuj</button>
           </form>

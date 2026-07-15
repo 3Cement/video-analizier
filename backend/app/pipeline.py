@@ -9,7 +9,10 @@ from app.asr.postprocess import normalize_asr_segments
 from app.asr.whisper import transcribe_audio
 from app.config import get_settings
 from app.errors import classify_job_error
+from app.ingest.article import fetch_article
+from app.ingest.epub import extract_epub_text
 from app.ingest.pdf import extract_pdf_text
+from app.ingest.podcast import download_audio, resolve_episode_audio
 from app.ingest.text import load_text_file, text_to_segments
 from app.ingest.youtube import ingest_youtube, load_local_captions
 from app.llm.summarize import summarize_segments
@@ -59,6 +62,9 @@ def _maybe_summarize(db: Session, source: Source, auto_summarize: bool) -> None:
     segs = [(s.start, s.end, s.text) for s in source.segments]
     content = summarize_segments(segs, title=source.title, kind="briefing", settings=settings)
     db.add(Summary(source_id=source.id, kind="briefing", content=content))
+    if source.source_type in {"article", "book", "podcast", "audiobook", "audio", "pdf", "text"}:
+        facts = summarize_segments(segs, title=source.title, kind="facts", settings=settings)
+        db.add(Summary(source_id=source.id, kind="facts", content=facts))
 
 
 def process_youtube_source(db: Session, source_id: int, auto_summarize: bool = True) -> None:
@@ -171,17 +177,27 @@ def process_upload_source(db: Session, source_id: int, auto_summarize: bool = Tr
             db.commit()
             text = extract_pdf_text(path)
             rows = text_to_segments(text)
+        elif suffix == ".epub":
+            source.status = "transcribing"
+            source.transcript_method = "epub"
+            source.source_type = "book"
+            db.commit()
+            text = extract_epub_text(path)
+            rows = text_to_segments(text)
         elif suffix in {".txt", ".md"}:
             source.status = "transcribing"
             source.transcript_method = "text"
             db.commit()
             text = load_text_file(path)
             rows = text_to_segments(text)
-        elif suffix in {".mp3", ".wav", ".m4a", ".webm", ".ogg", ".mp4", ".mkv"}:
+        elif suffix in {".mp3", ".wav", ".m4a", ".m4b", ".webm", ".ogg", ".opus", ".flac", ".aac", ".mp4", ".mkv"}:
             source.status = "transcribing"
             source.transcript_method = "whisper"
+            if source.source_type not in {"podcast", "audiobook", "audio"}:
+                source.source_type = "audiobook" if suffix == ".m4b" else "audio"
             db.commit()
             source.duration_seconds = probe_duration_seconds(path)
+            check_duration_limit(source.duration_seconds, settings, kind="audio")
             rows = _transcribe_rows(path, source.language, settings)
             if source.duration_seconds is None and rows:
                 source.duration_seconds = float(rows[-1][1])
@@ -191,6 +207,98 @@ def process_upload_source(db: Session, source_id: int, auto_summarize: bool = Tr
         if not source.title:
             source.title = path.name
 
+        _replace_segments(db, source, rows)
+        db.flush()
+        source.status = "summarizing" if auto_summarize else "ready"
+        db.commit()
+        if auto_summarize:
+            source = db.get(Source, source_id)
+            assert source is not None
+            _maybe_summarize(db, source, auto_summarize=True)
+        source = db.get(Source, source_id)
+        assert source is not None
+        source.status = "ready"
+        source.error = None
+        source.error_code = None
+        source.error_hint = None
+        db.commit()
+    except Exception as exc:  # noqa: BLE001
+        _fail_source(db, source_id, exc)
+        raise
+
+
+
+def process_article_source(db: Session, source_id: int, auto_summarize: bool = True) -> None:
+    source = db.get(Source, source_id)
+    if source is None:
+        return
+    try:
+        source.status = "downloading"
+        db.commit()
+        result = fetch_article(source.url or "")
+        source.title = result.title or source.title
+        source.url = result.url
+
+        settings = get_settings()
+        work_dir = settings.media_dir / f"source_{source.id}"
+        work_dir.mkdir(parents=True, exist_ok=True)
+        dest = work_dir / "article.txt"
+        dest.write_text(result.text, encoding="utf-8")
+        source.file_path = str(dest)
+
+        source.status = "transcribing"
+        source.transcript_method = "article"
+        db.commit()
+        rows = text_to_segments(result.text)
+        _replace_segments(db, source, rows)
+        db.flush()
+        source.status = "summarizing" if auto_summarize else "ready"
+        db.commit()
+        if auto_summarize:
+            source = db.get(Source, source_id)
+            assert source is not None
+            _maybe_summarize(db, source, auto_summarize=True)
+        source = db.get(Source, source_id)
+        assert source is not None
+        source.status = "ready"
+        source.error = None
+        source.error_code = None
+        source.error_hint = None
+        db.commit()
+    except Exception as exc:  # noqa: BLE001
+        _fail_source(db, source_id, exc)
+        raise
+
+
+def process_podcast_source(db: Session, source_id: int, auto_summarize: bool = True) -> None:
+    settings = get_settings()
+    source = db.get(Source, source_id)
+    if source is None:
+        return
+    try:
+        source.status = "downloading"
+        db.commit()
+        episode = resolve_episode_audio(source.url or "")
+        source.title = episode.title or source.title
+        work_dir = settings.media_dir / f"source_{source.id}"
+        work_dir.mkdir(parents=True, exist_ok=True)
+        suffix = Path(episode.audio_url.split("?", 1)[0]).suffix.lower() or ".mp3"
+        if suffix not in {".mp3", ".m4a", ".m4b", ".ogg", ".opus", ".wav", ".flac", ".aac", ".mp4"}:
+            suffix = ".mp3"
+        dest = work_dir / f"episode{suffix}"
+        download_audio(episode.audio_url, dest)
+        source.file_path = str(dest)
+        source.source_type = "podcast"
+        db.commit()
+
+        source.status = "transcribing"
+        source.transcript_method = "whisper"
+        db.commit()
+        source.duration_seconds = probe_duration_seconds(dest) or episode.duration_hint
+        check_duration_limit(source.duration_seconds, settings, kind="audio")
+        rows = _transcribe_rows(dest, source.language, settings)
+        if source.duration_seconds is None and rows:
+            source.duration_seconds = float(rows[-1][1])
         _replace_segments(db, source, rows)
         db.flush()
         source.status = "summarizing" if auto_summarize else "ready"
@@ -245,7 +353,7 @@ def reprocess_source_from_media(
             audio_candidates = sorted(
                 p
                 for p in work_dir.iterdir()
-                if p.suffix.lower() in {".mp3", ".m4a", ".webm", ".opus", ".wav"}
+                if p.suffix.lower() in {".mp3", ".wav", ".m4a", ".m4b", ".webm", ".ogg", ".opus", ".flac", ".aac", ".mp4", ".mkv"}
             )
             if not audio_candidates:
                 raise RuntimeError("No captions and no audio available for reprocess")

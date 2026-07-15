@@ -482,3 +482,15 @@ button.danger {
 h1.brand {
   margin: 0;
 }
+
+.checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0;
+  color: var(--muted, #6b7280);
+  font-size: 0.95rem;
+}
+.checkbox-row input {
+  width: auto;
+}

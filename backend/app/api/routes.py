@@ -23,11 +23,14 @@ from app.llm_settings_store import llm_status, save_llm_overrides
 from app.share import make_share_slug
 from app.models import Ask, Segment, Source, Summary
 from app.pipeline import (
+    process_article_source,
+    process_podcast_source,
     process_text_source,
     process_upload_source,
     process_youtube_source,
     reprocess_source_from_media,
 )
+from app.ingest.podcast import fetch_rss_episodes
 from app.schemas import (
     AskOut,
     AskRequest,
@@ -36,6 +39,9 @@ from app.schemas import (
     JobStatusOut,
     LlmSettingsUpdate,
     PlaylistCreateRequest,
+    PodcastRssCreateRequest,
+    PodcastEpisodeCreateRequest,
+    ArticleCreateRequest,
     QuotaOut,
     ShareOut,
     ReprocessRequest,
@@ -283,10 +289,17 @@ async def upload_source(
     enforce_daily_source_limit(db, user_id, settings)
     original_name = file.filename or "upload.bin"
     suffix = Path(original_name).suffix.lower()
-    if suffix not in {".pdf", ".txt", ".md", ".mp3", ".wav", ".m4a", ".webm", ".ogg", ".mp4", ".mkv"}:
+    if suffix not in {".pdf", ".txt", ".md", ".epub", ".mp3", ".wav", ".m4a", ".m4b", ".webm", ".ogg", ".opus", ".flac", ".aac", ".mp4", ".mkv"}:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {suffix}")
 
-    source_type = "pdf" if suffix == ".pdf" else "audio" if suffix in {".mp3", ".wav", ".m4a", ".webm", ".ogg", ".mp4", ".mkv"} else "text"
+    if suffix == ".pdf":
+        source_type = "pdf"
+    elif suffix == ".epub":
+        source_type = "book"
+    elif suffix in {".mp3", ".wav", ".m4a", ".m4b", ".webm", ".ogg", ".opus", ".flac", ".aac", ".mp4", ".mkv"}:
+        source_type = "audiobook" if suffix == ".m4b" else "audio"
+    else:
+        source_type = "text"
     source = Source(
         user_id=user_id,
         source_type=source_type,
@@ -499,6 +512,103 @@ def export_markdown(
         ss = int(seg.start % 60)
         lines.append(f"- [{mm:02d}:{ss:02d}] {seg.text}")
     return PlainTextResponse("\n".join(lines), media_type="text/markdown; charset=utf-8")
+
+
+
+
+@protected.post("/sources/article", response_model=SourceOut)
+def create_article_source(
+    payload: ArticleCreateRequest,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_optional_user_id),
+) -> SourceOut:
+    if extract_youtube_video_id(payload.url):
+        raise HTTPException(status_code=400, detail="Use /sources/youtube for YouTube URLs")
+    enforce_daily_source_limit(db, user_id, get_settings())
+    source = Source(
+        user_id=user_id,
+        source_type="article",
+        title=payload.title or "Article",
+        url=payload.url,
+        language=payload.language,
+        status="pending",
+    )
+    db.add(source)
+    db.commit()
+    db.refresh(source)
+    run_in_background(process_article_source, source.id, auto_summarize=payload.auto_summarize)
+    return _to_source_out(source, segment_count=0)
+
+
+@protected.post("/sources/podcast", response_model=SourceOut)
+def create_podcast_episode(
+    payload: PodcastEpisodeCreateRequest,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_optional_user_id),
+) -> SourceOut:
+    if extract_youtube_video_id(payload.url):
+        raise HTTPException(status_code=400, detail="Use /sources/youtube for YouTube URLs")
+    enforce_daily_source_limit(db, user_id, get_settings())
+    source = Source(
+        user_id=user_id,
+        source_type="podcast",
+        title="Podcast episode",
+        url=payload.url,
+        language=payload.language,
+        status="pending",
+    )
+    db.add(source)
+    db.commit()
+    db.refresh(source)
+    run_in_background(process_podcast_source, source.id, auto_summarize=payload.auto_summarize)
+    return _to_source_out(source, segment_count=0)
+
+
+@protected.post("/sources/podcast/rss", response_model=list[SourceOut])
+def create_podcast_rss(
+    payload: PodcastRssCreateRequest,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_optional_user_id),
+) -> list[SourceOut]:
+    settings = get_settings()
+    episodes = fetch_rss_episodes(payload.feed_url, max_episodes=payload.max_episodes)
+    if not episodes:
+        raise HTTPException(status_code=400, detail="No audio episodes found in RSS feed")
+    created: list[SourceOut] = []
+    for episode in episodes:
+        enforce_daily_source_limit(db, user_id, settings)
+        source = Source(
+            user_id=user_id,
+            source_type="podcast",
+            title=episode.title,
+            url=episode.audio_url,
+            language=payload.language,
+            status="pending",
+        )
+        db.add(source)
+        db.commit()
+        db.refresh(source)
+        run_in_background(process_podcast_source, source.id, auto_summarize=payload.auto_summarize)
+        created.append(_to_source_out(source, segment_count=0))
+    return created
+
+
+@protected.post("/sources/url", response_model=SourceOut)
+def create_from_url(
+    payload: ArticleCreateRequest,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_optional_user_id),
+) -> SourceOut:
+    """Smart router: YouTube -> youtube, audio file URL/podcast -> podcast, else article."""
+    url = payload.url.strip()
+    if extract_youtube_video_id(url):
+        yt = YouTubeCreateRequest(url=url, language=payload.language, auto_summarize=payload.auto_summarize)
+        return create_youtube_source(yt, db=db, user_id=user_id)
+    lower = url.lower()
+    if any(lower.endswith(ext) for ext in (".mp3", ".m4a", ".m4b", ".ogg", ".opus", ".wav", ".flac", ".aac")) or "rss" in lower or "/feed" in lower:
+        pod = PodcastEpisodeCreateRequest(url=url, language=payload.language, auto_summarize=payload.auto_summarize)
+        return create_podcast_episode(pod, db=db, user_id=user_id)
+    return create_article_source(payload, db=db, user_id=user_id)
 
 
 router.include_router(protected)

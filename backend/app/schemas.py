@@ -148,3 +148,24 @@ class QuotaOut(BaseModel):
     used: int
     limit: int
     remaining: int
+
+
+
+class ArticleCreateRequest(BaseModel):
+    url: str = Field(..., min_length=8)
+    title: Optional[str] = None
+    language: str = "pl"
+    auto_summarize: bool = True
+
+
+class PodcastEpisodeCreateRequest(BaseModel):
+    url: str = Field(..., min_length=8, description="Direct audio URL, episode page, or single-item feed")
+    language: str = "pl"
+    auto_summarize: bool = True
+
+
+class PodcastRssCreateRequest(BaseModel):
+    feed_url: str = Field(..., min_length=8)
+    max_episodes: int = Field(default=3, ge=1, le=20)
+    language: str = "pl"
+    auto_summarize: bool = True

@@ -7,7 +7,12 @@ from sqlalchemy import select, update
 from app.config import get_settings
 from app.db import get_session, init_db
 from app.models import Source
-from app.pipeline import process_upload_source, process_youtube_source
+from app.pipeline import (
+    process_article_source,
+    process_podcast_source,
+    process_upload_source,
+    process_youtube_source,
+)
 
 
 def claim_next_pending(db) -> Source | None:
@@ -35,7 +40,13 @@ def _dispatch(db, source: Source) -> None:
     if source.source_type == "youtube":
         process_youtube_source(db, source.id, auto_summarize=True)
         return
-    if source.source_type in {"pdf", "audio", "text"}:
+    if source.source_type == "article":
+        process_article_source(db, source.id, auto_summarize=True)
+        return
+    if source.source_type == "podcast":
+        process_podcast_source(db, source.id, auto_summarize=True)
+        return
+    if source.source_type in {"pdf", "audio", "audiobook", "book", "text"}:
         process_upload_source(db, source.id, auto_summarize=True)
         return
     source.status = "failed"

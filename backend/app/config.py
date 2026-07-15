@@ -40,6 +40,7 @@ class Settings(BaseSettings):
 
     api_key: str = ""
     max_video_duration_seconds: int = 7200
+    max_audio_duration_seconds: int = 21600
     daily_source_limit: int = 50
     worker_mode: bool = False
     worker_poll_seconds: float = 3.0
