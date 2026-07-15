@@ -24,8 +24,16 @@ def test_extractive_briefing_kind(monkeypatch):
     get_settings.cache_clear()
     monkeypatch.setenv("OPENAI_API_KEY", "")
     get_settings.cache_clear()
-    segments = [(0.0, 5.0, "Krótki opis treningu domowego z kettlebell.")]
+    segments = [
+        (
+            0.0,
+            8.0,
+            "Domowe treningi wymagają większej częstotliwości: 15 do 25 minut pięć razy w tygodniu.",
+        ),
+        (20.0, 28.0, "Najważniejszy problem to brak czasu i brak planu treningowego."),
+    ]
     out = summarize_segments(segments, title="Dom", kind="briefing")
-    assert out.startswith("# Briefing:")
-    assert "Kluczowe punkty" in out
+    assert out.startswith("# Podsumowanie:")
+    assert "Najważniejsze informacje" in out
+    assert "15" in out
     get_settings.cache_clear()

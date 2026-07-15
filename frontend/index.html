@@ -3,11 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>video-analizier</title>
+    <title>video-analizier — podsumowania YouTube</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Source+Sans+3:wght@400;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Source+Sans+3:wght@400;600;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/assets/styles.css" />
@@ -15,105 +15,107 @@
   <body>
     <div class="atmosphere" aria-hidden="true"></div>
     <main class="shell">
-      <header class="brand-block">
+      <header class="hero">
         <p class="brand">video-analizier</p>
-        <h1>Źródła w wiedzę</h1>
         <p class="lede">
-          Wklej film YouTube bez napisów, wrzuć PDF lub tekst — dostaniesz
-          transkrypt, briefing i odpowiedzi z cytowaniami czasowymi.
+          Wklej link do YouTube — dostaniesz czytelne podsumowanie i kluczowe
+          wnioski, nawet gdy film nie ma napisów.
         </p>
+
+        <form id="youtube-form" class="hero-form">
+          <label class="sr-only" for="youtube-url">Link YouTube</label>
+          <input
+            id="youtube-url"
+            name="url"
+            type="url"
+            required
+            autocomplete="off"
+            placeholder="https://www.youtube.com/watch?v=..."
+          />
+          <button id="submit-btn" type="submit">Podsumuj film</button>
+        </form>
+        <p id="status-line" class="status" aria-live="polite">
+          Gotowe do analizy.
+        </p>
+        <ol id="steps" class="steps" hidden>
+          <li data-step="downloading">Pobieranie audio</li>
+          <li data-step="transcribing">Transkrypcja / napisy</li>
+          <li data-step="summarizing">Budowanie podsumowania</li>
+          <li data-step="ready">Gotowe</li>
+        </ol>
       </header>
 
-      <section class="panel" aria-labelledby="ingest-title">
-        <h2 id="ingest-title">Dodaj źródło</h2>
-        <div class="tabs" role="tablist">
-          <button class="tab active" data-tab="youtube" type="button">YouTube</button>
-          <button class="tab" data-tab="upload" type="button">Plik</button>
-          <button class="tab" data-tab="text" type="button">Tekst</button>
-        </div>
-
-        <form id="youtube-form" class="form tab-panel active" data-panel="youtube">
-          <label>
-            URL filmu
-            <input
-              id="youtube-url"
-              name="url"
-              type="url"
-              required
-              placeholder="https://www.youtube.com/watch?v=..."
-            />
-          </label>
-          <label class="inline">
-            <input id="youtube-summarize" type="checkbox" checked />
-            Automatyczne podsumowanie
-          </label>
-          <button type="submit">Analizuj film</button>
-        </form>
-
-        <form id="upload-form" class="form tab-panel" data-panel="upload">
-          <label>
-            PDF, TXT, MD lub audio
-            <input id="upload-file" name="file" type="file" required />
-          </label>
-          <label class="inline">
-            <input id="upload-summarize" type="checkbox" checked />
-            Automatyczne podsumowanie
-          </label>
-          <button type="submit">Wgraj i analizuj</button>
-        </form>
-
-        <form id="text-form" class="form tab-panel" data-panel="text">
-          <label>
-            Tytuł
-            <input id="text-title" name="title" type="text" value="Notatka" />
-          </label>
-          <label>
-            Treść
-            <textarea id="text-body" name="text" rows="8" required></textarea>
-          </label>
-          <label class="inline">
-            <input id="text-summarize" type="checkbox" checked />
-            Automatyczne podsumowanie
-          </label>
-          <button type="submit">Dodaj tekst</button>
-        </form>
-      </section>
-
-      <section class="panel" aria-labelledby="status-title">
-        <div class="row-between">
-          <h2 id="status-title">Źródła</h2>
-          <div class="btn-row">
-            <button id="reprocess-btn" class="ghost" type="button">Przetwórz ponownie</button>
-            <button id="refresh-btn" class="ghost" type="button">Odśwież</button>
+      <section id="result" class="result" hidden>
+        <div class="result-head">
+          <div>
+            <p class="eyebrow">Podsumowanie</p>
+            <h2 id="result-title">—</h2>
+            <p id="result-meta" class="muted"></p>
           </div>
+          <a id="result-link" class="ghost-link" href="#" target="_blank" rel="noreferrer">
+            Otwórz na YouTube
+          </a>
         </div>
-        <p id="status-line" class="status">Brak aktywnego przetwarzania.</p>
-        <ul id="source-list" class="source-list"></ul>
-      </section>
 
-      <section class="panel" aria-labelledby="detail-title">
-        <h2 id="detail-title">Wybrane źródło</h2>
-        <p id="detail-meta" class="muted">Wybierz źródło z listy.</p>
-        <article id="summary-box" class="content-box"></article>
-        <details id="transcript-box" class="content-box">
-          <summary>Transkrypt / segmenty</summary>
-          <pre id="transcript-pre"></pre>
-        </details>
+        <article id="summary-box" class="summary"></article>
 
-        <form id="ask-form" class="form">
+        <div class="result-actions">
+          <button id="ask-toggle" class="ghost" type="button">Zadaj pytanie do filmu</button>
+          <button id="transcript-toggle" class="ghost" type="button">Pokaż transkrypt</button>
+          <button id="copy-summary" class="ghost" type="button">Kopiuj podsumowanie</button>
+        </div>
+
+        <form id="ask-form" class="ask-form" hidden>
           <label>
-            Pytanie do źródła
+            Pytanie
             <input
               id="ask-input"
               type="text"
-              placeholder="Jakie są główne kroki / wnioski?"
+              placeholder="Np. Jak często ćwiczyć według tego filmu?"
               required
             />
           </label>
           <button type="submit">Zapytaj</button>
         </form>
-        <article id="answer-box" class="content-box"></article>
+        <article id="answer-box" class="answer" hidden></article>
+
+        <details id="transcript-box" class="transcript">
+          <summary>Transkrypt z timestampami</summary>
+          <pre id="transcript-pre"></pre>
+        </details>
       </section>
+
+      <section class="history" aria-labelledby="history-title">
+        <div class="row-between">
+          <h2 id="history-title">Ostatnie analizy</h2>
+          <button id="refresh-btn" class="ghost" type="button">Odśwież</button>
+        </div>
+        <ul id="source-list" class="source-list"></ul>
+      </section>
+
+      <details class="more-sources">
+        <summary>Inne źródła (PDF, tekst, audio)</summary>
+        <div class="more-grid">
+          <form id="upload-form" class="form">
+            <label>
+              Plik PDF / TXT / audio
+              <input id="upload-file" name="file" type="file" required />
+            </label>
+            <button type="submit">Wgraj i analizuj</button>
+          </form>
+          <form id="text-form" class="form">
+            <label>
+              Tytuł
+              <input id="text-title" name="title" type="text" value="Notatka" />
+            </label>
+            <label>
+              Treść
+              <textarea id="text-body" name="text" rows="5" required></textarea>
+            </label>
+            <button type="submit">Dodaj tekst</button>
+          </form>
+        </div>
+      </details>
     </main>
     <script src="/assets/app.js"></script>
   </body>

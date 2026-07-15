@@ -1,36 +1,36 @@
 # video-analizier
 
-Narzędzie w stylu NotebookLM: analizuje źródła (YouTube bez napisów, audio, PDF, tekst), buduje transkrypt ze znacznikami czasu i generuje podsumowania oraz odpowiedzi z cytowaniami `[mm:ss]`.
+Online tool: **wklej link YouTube → dostaniesz podsumowanie** (także bez napisów, przez Whisper ASR).  
+Działa też z PDF / tekstem / audio.
 
 ## Jak to działa
 
-1. **Ingest** — URL YouTube (`yt-dlp`) albo upload PDF/TXT/audio.
-2. **Tekst** — napisy YouTube jeśli są; w przeciwnym razie ASR `faster-whisper` (`language=pl`).
-3. **Indeks** — segmenty z timestampami w SQLite.
-4. **LLM** — briefing / FAQ / Q&A tylko na podstawie źródła (wymaga `OPENAI_API_KEY`).
+1. Wklejasz URL YouTube w UI.
+2. Pobierane jest audio (`yt-dlp`); biorą się napisy albo idzie ASR PL.
+3. Powstaje podsumowanie z kluczowymi wnioskami i timestampami `[mm:ss]`.
+4. Możesz dopytać o szczegóły w materiale.
 
-## Szybki start
+## Szybki start (online lokalnie)
+
+```bash
+cp .env.example .env
+# opcjonalnie: OPENAI_API_KEY, YTDLP_PROXY
+docker compose up --build
+```
+
+UI: http://localhost:8000  
+Deploy: patrz [DEPLOY.md](DEPLOY.md) (Render / VPS).
+
+### Dev bez Dockera
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e .
-cp .env.example .env   # uzupełnij OPENAI_API_KEY
-mkdir -p data/media
-
-# API + UI
-PYTHONPATH=backend uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-UI: http://localhost:8000  
-API docs: http://localhost:8000/docs
-
-### Docker
-
-```bash
 cp .env.example .env
-docker compose up --build
+mkdir -p data/media
+PYTHONPATH=backend uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ### CLI
