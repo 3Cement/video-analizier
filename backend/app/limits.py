@@ -35,21 +35,54 @@ def check_duration_limit(
         raise DurationLimitError(f"{label} exceeds maximum duration ({minutes} minutes).")
 
 
-def enforce_daily_source_limit(db: Session, user_id: str, settings: Settings) -> None:
-    limit = settings.daily_source_limit
-    if limit <= 0:
-        return
-    since = datetime.now(timezone.utc) - timedelta(days=1)
-    count = db.scalar(
+def _daily_count(db: Session, user_id: str, since, source_type: str | None = None) -> int:
+    stmt = (
         select(func.count())
         .select_from(Source)
         .where(Source.user_id == user_id, Source.created_at >= since)
     )
-    if count is not None and count >= limit:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Daily source limit reached ({limit} per 24h).",
-        )
+    if source_type:
+        stmt = stmt.where(Source.source_type == source_type)
+    count = db.scalar(stmt)
+    return int(count or 0)
+
+
+def enforce_daily_source_limit(
+    db: Session,
+    user_id: str,
+    settings: Settings,
+    *,
+    source_type: str | None = None,
+) -> None:
+    since = datetime.now(timezone.utc) - timedelta(days=1)
+    global_limit = settings.daily_source_limit
+    if global_limit > 0:
+        used = _daily_count(db, user_id, since)
+        if used >= global_limit:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Daily source limit reached ({global_limit} per 24h).",
+            )
+
+    type_limits = {
+        "youtube": settings.daily_youtube_limit,
+        "podcast": settings.daily_audio_limit,
+        "audio": settings.daily_audio_limit,
+        "audiobook": settings.daily_audio_limit,
+        "article": settings.daily_article_limit,
+        "book": settings.daily_article_limit,
+        "pdf": settings.daily_article_limit,
+        "text": settings.daily_article_limit,
+    }
+    if source_type and source_type in type_limits:
+        limit = type_limits[source_type]
+        if limit > 0:
+            used = _daily_count(db, user_id, since, source_type=source_type)
+            if used >= limit:
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Daily {source_type} limit reached ({limit} per 24h).",
+                )
 
 
 def enforce_duration_limit(

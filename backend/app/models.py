@@ -3,10 +3,20 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255), default="")
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Source(Base):
@@ -21,6 +31,8 @@ class Source(Base):
     file_path: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     language: Mapped[str] = mapped_column(String(16), default="pl")
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    progress: Mapped[float] = mapped_column(Float, default=0.0)
+    progress_message: Mapped[str] = mapped_column(String(255), default="")
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     error_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     error_hint: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -28,6 +40,10 @@ class Source(Base):
     transcript_method: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     share_slug: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, unique=True, index=True)
     is_public: Mapped[bool] = mapped_column(Boolean, default=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    author: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    show_title: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    published_at: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -51,6 +67,22 @@ class Source(Base):
         back_populates="source",
         cascade="all, delete-orphan",
         order_by="Ask.created_at",
+    )
+    notes: Mapped[list["Note"]] = relationship(
+        "Note",
+        back_populates="source",
+        cascade="all, delete-orphan",
+        order_by="Note.created_at",
+    )
+    tags: Mapped[list["Tag"]] = relationship(
+        "Tag",
+        secondary="source_tags",
+        back_populates="sources",
+    )
+    collections: Mapped[list["Collection"]] = relationship(
+        "Collection",
+        secondary="collection_sources",
+        back_populates="sources",
     )
 
 
@@ -89,3 +121,63 @@ class Ask(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     source: Mapped[Source] = relationship("Source", back_populates="asks")
+
+
+class Collection(Base):
+    __tablename__ = "collections"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(128), index=True)
+    name: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    sources: Mapped[list[Source]] = relationship(
+        "Source",
+        secondary="collection_sources",
+        back_populates="collections",
+    )
+
+
+class CollectionSource(Base):
+    __tablename__ = "collection_sources"
+    __table_args__ = (UniqueConstraint("collection_id", "source_id", name="uq_collection_source"),)
+
+    collection_id: Mapped[int] = mapped_column(
+        ForeignKey("collections.id", ondelete="CASCADE"), primary_key=True
+    )
+    source_id: Mapped[int] = mapped_column(ForeignKey("sources.id", ondelete="CASCADE"), primary_key=True)
+
+
+class Tag(Base):
+    __tablename__ = "tags"
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_user_tag"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(128), index=True)
+    name: Mapped[str] = mapped_column(String(64), default="")
+
+    sources: Mapped[list[Source]] = relationship(
+        "Source",
+        secondary="source_tags",
+        back_populates="tags",
+    )
+
+
+class SourceTag(Base):
+    __tablename__ = "source_tags"
+    __table_args__ = (UniqueConstraint("source_id", "tag_id", name="uq_source_tag"),)
+
+    source_id: Mapped[int] = mapped_column(ForeignKey("sources.id", ondelete="CASCADE"), primary_key=True)
+    tag_id: Mapped[int] = mapped_column(ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
+
+
+class Note(Base):
+    __tablename__ = "notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(128), index=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey("sources.id", ondelete="CASCADE"), index=True)
+    body: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    source: Mapped[Source] = relationship("Source", back_populates="notes")

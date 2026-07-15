@@ -494,3 +494,24 @@ h1.brand {
 .checkbox-row input {
   width: auto;
 }
+
+.progress-wrap { margin-top: 0.75rem; }
+.progress-bar {
+  height: 0.45rem;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #38bdf8, #a78bfa);
+  transition: width 0.3s ease;
+}
+.chip-list, .notes-list { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.chip-list li, .notes-list li {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 999px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.9rem;
+}
+.notes-list li { border-radius: 0.75rem; width: 100%; }
+.inline-form { display: flex; gap: 0.75rem; align-items: end; flex-wrap: wrap; }
+.auth-box { margin: 0.75rem 0 1rem; }
+.search-form { margin-bottom: 0.75rem; }

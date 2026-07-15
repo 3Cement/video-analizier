@@ -52,16 +52,23 @@ class SourceOut(BaseModel):
     video_id: Optional[str] = None
     language: str
     status: str
+    progress: float = 0.0
+    progress_message: str = ""
     error: Optional[str] = None
     error_code: Optional[str] = None
     error_hint: Optional[str] = None
     duration_seconds: Optional[float] = None
     transcript_method: Optional[str] = None
+    description: Optional[str] = None
+    author: Optional[str] = None
+    show_title: Optional[str] = None
+    published_at: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     segment_count: int = 0
     share_slug: Optional[str] = None
     is_public: bool = False
+    tags: list[str] = []
 
     model_config = {"from_attributes": True}
 
@@ -116,6 +123,8 @@ class JobStatusOut(BaseModel):
     error_code: Optional[str] = None
     error_hint: Optional[str] = None
     progress: str = ""
+    progress_pct: float = 0.0
+    progress_message: str = ""
 
 
 class LlmSettingsUpdate(BaseModel):
@@ -169,3 +178,69 @@ class PodcastRssCreateRequest(BaseModel):
     max_episodes: int = Field(default=3, ge=1, le=20)
     language: str = "pl"
     auto_summarize: bool = True
+
+
+
+class AuthRegisterRequest(BaseModel):
+    email: str = Field(..., min_length=5)
+    password: str = Field(..., min_length=6)
+
+
+class AuthLoginRequest(BaseModel):
+    email: str = Field(..., min_length=5)
+    password: str = Field(..., min_length=6)
+
+
+class AuthOut(BaseModel):
+    email: str
+    token: str
+    user_id: str
+
+
+class CollectionCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+
+
+class CollectionOut(BaseModel):
+    id: int
+    name: str
+    source_ids: list[int] = []
+
+    model_config = {"from_attributes": True}
+
+
+class TagOut(BaseModel):
+    id: int
+    name: str
+
+    model_config = {"from_attributes": True}
+
+
+class TagAssignRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=64)
+
+
+class NoteCreateRequest(BaseModel):
+    body: str = Field(..., min_length=1)
+
+
+class NoteOut(BaseModel):
+    id: int
+    source_id: int
+    body: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SearchHit(BaseModel):
+    source_id: int
+    title: str
+    source_type: str
+    snippet: str
+    match_kind: str
+
+
+class SearchResponse(BaseModel):
+    query: str
+    hits: list[SearchHit] = []

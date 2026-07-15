@@ -132,7 +132,18 @@ function renderMarkdown(text, videoUrl = "") {
   return out.join("");
 }
 
+function authHeaders() {
+  const token = localStorage.getItem("va_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function api(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  const auth = authHeaders();
+  Object.entries(auth).forEach(([k, v]) => {
+    if (!headers.has(k)) headers.set(k, v);
+  });
+  options = { ...options, headers };
   const res = await fetch(`/api${path}`, options);
   if (!res.ok) {
     let detail = res.statusText;
@@ -223,6 +234,7 @@ async function pollJobStatus() {
   }
   const status = await api(`/sources/${state.selectedId}/status`);
   updateSteps(status.status);
+      if (typeof status.progress_pct === "number") setProgress(status.progress_pct, status.progress_message || status.progress);
   const item = state.sources.find((s) => s.id === state.selectedId);
   if (item) item.status = status.status;
   renderSources();
@@ -330,6 +342,15 @@ ${factsSummary.content}`;
   el.exportMdBtn.hidden = detail.status !== "ready";
   if (el.extractFactsBtn) el.extractFactsBtn.hidden = detail.status !== "ready";
   if (el.summarizeBtn) el.summarizeBtn.hidden = detail.status !== "ready";
+  const docxBtn = document.getElementById("export-docx-btn");
+  if (docxBtn) docxBtn.hidden = detail.status !== "ready";
+  const tagForm = document.getElementById("tag-form");
+  const noteForm = document.getElementById("note-form");
+  if (tagForm) tagForm.hidden = detail.status !== "ready";
+  if (noteForm) noteForm.hidden = detail.status !== "ready";
+  if (detail.status === "ready") loadNotes(detail.id);
+  const tagsLine = document.getElementById("tags-line");
+  if (tagsLine) tagsLine.textContent = (detail.tags || []).map((x) => `#${x}`).join(" ");
   el.deleteBtn.hidden = false;
   if (detail.share_slug) {
     el.shareUrlLine.hidden = false;
@@ -349,6 +370,7 @@ ${factsSummary.content}`;
   }
 
   updateSteps(detail.status);
+  if (typeof detail.progress === "number") setProgress(detail.progress, detail.progress_message);
   if (detail.status === "ready") {
     setStatus("Podsumowanie gotowe.");
     setBusy(false);
@@ -634,7 +656,7 @@ el.shareBtn.addEventListener("click", async () => {
 el.exportMdBtn.addEventListener("click", async () => {
   if (!state.selectedId) return;
   try {
-    const res = await fetch(`/api/sources/${state.selectedId}/export.md`);
+    const res = await fetch(`/api/sources/${state.selectedId}/export.md`, { headers: authHeaders() });
     if (!res.ok) throw new Error("Nie udało się wyeksportować");
     const blob = await res.blob();
     const a = document.createElement("a");
@@ -769,3 +791,197 @@ async function runSummarizeKind(kind) {
 
 document.getElementById("extract-facts-btn")?.addEventListener("click", () => runSummarizeKind("facts"));
 document.getElementById("summarize-btn")?.addEventListener("click", () => runSummarizeKind("briefing"));
+
+
+function setProgress(pct, label) {
+  const wrap = document.getElementById("progress-wrap");
+  const bar = document.getElementById("progress-bar");
+  const lab = document.getElementById("progress-label");
+  if (!wrap || !bar) return;
+  if (pct == null) {
+    wrap.hidden = true;
+    return;
+  }
+  wrap.hidden = false;
+  bar.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+  if (lab) lab.textContent = label || `${Math.round(pct)}%`;
+}
+
+const _origPoll = typeof pollJobStatus === "function" ? pollJobStatus : null;
+
+document.getElementById("auth-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const email = document.getElementById("auth-email").value.trim();
+  const password = document.getElementById("auth-password").value;
+  try {
+    const data = await api("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    localStorage.setItem("va_token", data.token);
+    localStorage.setItem("va_email", data.email);
+    document.getElementById("auth-status").textContent = `Zalogowano: ${data.email}`;
+    document.getElementById("auth-summary").textContent = `Konto: ${data.email}`;
+    await refreshSources();
+    await loadCollections();
+  } catch (err) {
+    document.getElementById("auth-status").textContent = err.message;
+  }
+});
+
+document.getElementById("auth-register")?.addEventListener("click", async () => {
+  const email = document.getElementById("auth-email").value.trim();
+  const password = document.getElementById("auth-password").value;
+  try {
+    const data = await api("/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    localStorage.setItem("va_token", data.token);
+    localStorage.setItem("va_email", data.email);
+    document.getElementById("auth-status").textContent = `Konto utworzone: ${data.email}`;
+    document.getElementById("auth-summary").textContent = `Konto: ${data.email}`;
+    await refreshSources();
+  } catch (err) {
+    document.getElementById("auth-status").textContent = err.message;
+  }
+});
+
+document.getElementById("auth-logout")?.addEventListener("click", async () => {
+  localStorage.removeItem("va_token");
+  localStorage.removeItem("va_email");
+  document.getElementById("auth-status").textContent = "Wylogowano.";
+  document.getElementById("auth-summary").textContent = "Konto (opcjonalne)";
+  await refreshSources();
+});
+
+document.getElementById("search-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const q = document.getElementById("search-q").value.trim();
+  const list = document.getElementById("search-hits");
+  if (!q) {
+    list.hidden = true;
+    return;
+  }
+  try {
+    const data = await api(`/library/search?q=${encodeURIComponent(q)}`);
+    list.hidden = false;
+    list.innerHTML = (data.hits || [])
+      .map(
+        (h) => `<li><button type="button" data-id="${h.source_id}" class="source-btn">
+          <strong>${escapeHtml(h.title || "Bez tytułu")}</strong>
+          <span class="muted">${escapeHtml(h.match_kind)} · ${escapeHtml(h.source_type)}</span>
+          <span>${escapeHtml(h.snippet || "")}</span>
+        </button></li>`
+      )
+      .join("") || "<li class='muted'>Brak wyników</li>";
+    list.querySelectorAll("button[data-id]").forEach((btn) => {
+      btn.addEventListener("click", () => selectSource(Number(btn.dataset.id)));
+    });
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
+
+async function loadCollections() {
+  const list = document.getElementById("collection-list");
+  if (!list) return;
+  try {
+    const rows = await api("/library/collections");
+    list.innerHTML = rows
+      .map((c) => `<li title="${c.source_ids.length} źródeł">${escapeHtml(c.name)} (${c.source_ids.length})</li>`)
+      .join("");
+  } catch (_) {
+    list.innerHTML = "";
+  }
+}
+
+document.getElementById("collection-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = document.getElementById("collection-name").value.trim();
+  if (!name) return;
+  try {
+    await api("/library/collections", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    document.getElementById("collection-name").value = "";
+    await loadCollections();
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
+
+document.getElementById("tag-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!state.selectedId) return;
+  const name = document.getElementById("tag-name").value.trim();
+  if (!name) return;
+  try {
+    const tags = await api(`/library/sources/${state.selectedId}/tags`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    document.getElementById("tags-line").textContent = tags.map((t) => `#${t.name}`).join(" ");
+    document.getElementById("tag-name").value = "";
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
+
+document.getElementById("note-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!state.selectedId) return;
+  const body = document.getElementById("note-body").value.trim();
+  if (!body) return;
+  try {
+    await api(`/library/sources/${state.selectedId}/notes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body }),
+    });
+    document.getElementById("note-body").value = "";
+    await loadNotes(state.selectedId);
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
+
+async function loadNotes(sourceId) {
+  const list = document.getElementById("notes-list");
+  if (!list) return;
+  try {
+    const notes = await api(`/library/sources/${sourceId}/notes`);
+    list.innerHTML = notes.map((n) => `<li>${escapeHtml(n.body)}</li>`).join("");
+  } catch (_) {
+    list.innerHTML = "";
+  }
+}
+
+document.getElementById("export-docx-btn")?.addEventListener("click", async () => {
+  if (!state.selectedId) return;
+  const headers = authHeaders();
+  const res = await fetch(`/api/sources/${state.selectedId}/export.docx`, { headers });
+  if (!res.ok) {
+    setStatus("Eksport DOCX nieudany");
+    return;
+  }
+  const blob = await res.blob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `source-${state.selectedId}.docx`;
+  a.click();
+});
+
+const email = localStorage.getItem("va_email");
+if (email) {
+  const summary = document.getElementById("auth-summary");
+  const status = document.getElementById("auth-status");
+  if (summary) summary.textContent = `Konto: ${email}`;
+  if (status) status.textContent = `Zalogowano: ${email}`;
+}
+loadCollections();

@@ -10,6 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.api.routes import router
+from app.api.auth_routes import router as auth_router
+from app.api.library import router as library_router
 from app.config import get_settings
 from app.db import get_session, init_db
 from app.models import Source
@@ -26,7 +28,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="video-analizier",
         description="Source-grounded analysis for YouTube, audio, PDF and text (NotebookLM-style).",
-        version="0.2.0",
+        version="0.3.0",
     )
     app.add_middleware(
         CORSMiddleware,
@@ -36,6 +38,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(router, prefix="/api")
+    app.include_router(auth_router, prefix="/api")
+    app.include_router(library_router, prefix="/api/library")
 
     assets_dir = FRONTEND_DIR / "assets"
     if FRONTEND_DIR.exists() and assets_dir.exists():
@@ -102,6 +106,16 @@ def create_app() -> FastAPI:
                 return HTMLResponse(html_doc)
             finally:
                 db.close()
+
+    
+    @app.get("/manifest.webmanifest")
+    def pwa_manifest():
+        path = FRONTEND_DIR / "manifest.webmanifest"
+        return FileResponse(path, media_type="application/manifest+json")
+
+    @app.get("/sw.js")
+    def service_worker():
+        return FileResponse(FRONTEND_DIR / "sw.js", media_type="application/javascript")
 
     return app
 
