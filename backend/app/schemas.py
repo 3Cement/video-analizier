@@ -87,6 +87,12 @@ class SummarizeRequest(BaseModel):
     kind: str = "briefing"
 
 
+class ReprocessRequest(BaseModel):
+    prefer_captions: bool = True
+    force_asr: bool = False
+    auto_summarize: bool = True
+
+
 class JobStatusOut(BaseModel):
     source_id: int
     status: str

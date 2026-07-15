@@ -92,15 +92,19 @@ def _extractive_answer(
     question: str,
     segments: list[tuple[float, float, str]],
 ) -> tuple[str, list[Citation]]:
-    ranked = _rank_segments(segments, question, limit=4)
-    if not ranked:
+    ranked = _rank_segments(segments, question, limit=6)
+    # Prefer segments that actually matched keywords
+    tokens = {t.lower() for t in re.findall(r"\w+", question, flags=re.UNICODE) if len(t) > 3}
+    matched = [
+        seg
+        for seg in ranked
+        if any(tok in seg[2].lower() for tok in tokens)
+    ] or ranked[:4]
+    if not matched:
         return "Nie znaleziono pasujących fragmentów w źródle.", []
-    lines = [
-        f"- [{format_timestamp(start)}] {text}"
-        for start, _end, text in ranked
-    ]
+    lines = [f"- [{format_timestamp(start)}] {text}" for start, _end, text in matched[:5]]
     answer = (
-        "Odpowiedź ekstraktywna (brak OPENAI_API_KEY):\n"
+        "Na podstawie źródła (tryb ekstraktywny, brak OPENAI_API_KEY):\n"
         + "\n".join(lines)
     )
     citations = [
@@ -110,7 +114,7 @@ def _extractive_answer(
             timestamp=format_timestamp(start),
             text=text,
         )
-        for start, end, text in ranked
+        for start, end, text in matched[:5]
     ]
     return answer, citations
 

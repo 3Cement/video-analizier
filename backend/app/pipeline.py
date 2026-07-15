@@ -9,7 +9,7 @@ from app.asr.whisper import transcribe_audio
 from app.config import get_settings
 from app.ingest.pdf import extract_pdf_text
 from app.ingest.text import load_text_file, text_to_segments
-from app.ingest.youtube import ingest_youtube
+from app.ingest.youtube import ingest_youtube, load_local_captions
 from app.llm.summarize import summarize_segments
 from app.models import Segment, Source, Summary
 
@@ -171,6 +171,70 @@ def process_upload_source(db: Session, source_id: int, auto_summarize: bool = Tr
         if not source.title:
             source.title = path.name
 
+        _replace_segments(db, source, rows)
+        db.flush()
+        source.status = "summarizing" if auto_summarize else "ready"
+        db.commit()
+        if auto_summarize:
+            source = db.get(Source, source_id)
+            assert source is not None
+            _maybe_summarize(db, source, auto_summarize=True)
+        source = db.get(Source, source_id)
+        assert source is not None
+        source.status = "ready"
+        source.error = None
+        db.commit()
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        source = db.get(Source, source_id)
+        if source is not None:
+            source.status = "failed"
+            source.error = str(exc)
+            db.commit()
+        raise
+
+
+def reprocess_source_from_media(
+    db: Session,
+    source_id: int,
+    prefer_captions: bool = True,
+    force_asr: bool = False,
+    auto_summarize: bool = True,
+) -> None:
+    """Rebuild segments from already downloaded media (no YouTube re-download)."""
+    settings = get_settings()
+    source = db.get(Source, source_id)
+    if source is None:
+        return
+    try:
+        work_dir = settings.media_dir / f"source_{source.id}"
+        if not work_dir.exists():
+            raise RuntimeError(f"Media directory missing for source {source_id}")
+
+        source.status = "transcribing"
+        source.error = None
+        db.commit()
+
+        rows: list[tuple[float, float, str]] = []
+        if prefer_captions and not force_asr:
+            captions, _lang = load_local_captions(work_dir, language=source.language)
+            if captions:
+                rows = [(c.start, c.end, c.text) for c in captions]
+                source.transcript_method = "captions"
+
+        if not rows:
+            audio_candidates = sorted(
+                p
+                for p in work_dir.iterdir()
+                if p.suffix.lower() in {".mp3", ".m4a", ".webm", ".opus", ".wav"}
+            )
+            if not audio_candidates:
+                raise RuntimeError("No captions and no audio available for reprocess")
+            asr = transcribe_audio(audio_candidates[0], language=source.language, settings=settings)
+            rows = [(s.start, s.end, s.text) for s in asr]
+            source.transcript_method = "whisper"
+
+        source.summaries.clear()
         _replace_segments(db, source, rows)
         db.flush()
         source.status = "summarizing" if auto_summarize else "ready"

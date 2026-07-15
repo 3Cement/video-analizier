@@ -8,12 +8,7 @@ from typing import Any, Optional
 
 import yt_dlp
 
-
-@dataclass
-class CaptionSegment:
-    start: float
-    end: float
-    text: str
+from app.ingest.captions import CaptionSegment, clean_caption_text, normalize_caption_stream
 
 
 @dataclass
@@ -30,7 +25,6 @@ class YouTubeIngestResult:
 _VTT_TS = re.compile(
     r"(?:(\d{2}):)?(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(?:(\d{2}):)?(\d{2}):(\d{2})[.,](\d{3})"
 )
-_TAG = re.compile(r"<[^>]+>")
 
 
 def _ts_to_seconds(h: Optional[str], m: str, s: str, ms: str) -> float:
@@ -51,7 +45,7 @@ def parse_vtt(content: str) -> list[CaptionSegment]:
             if "-->" in ln:
                 ts_line = ln
             elif ts_line is not None and not ln.isdigit() and not ln.upper().startswith("WEBVTT"):
-                text_lines.append(_TAG.sub("", ln))
+                text_lines.append(ln)
         if not ts_line or not text_lines:
             continue
         match = _VTT_TS.search(ts_line)
@@ -59,10 +53,10 @@ def parse_vtt(content: str) -> list[CaptionSegment]:
             continue
         start = _ts_to_seconds(match.group(1), match.group(2), match.group(3), match.group(4))
         end = _ts_to_seconds(match.group(5), match.group(6), match.group(7), match.group(8))
-        text = " ".join(text_lines).strip()
+        text = clean_caption_text(" ".join(text_lines))
         if text:
             segments.append(CaptionSegment(start=start, end=end, text=text))
-    return _dedupe_captions(segments)
+    return normalize_caption_stream(segments)
 
 
 def parse_json3(content: str) -> list[CaptionSegment]:
@@ -70,30 +64,15 @@ def parse_json3(content: str) -> list[CaptionSegment]:
     segments: list[CaptionSegment] = []
     for event in data.get("events", []):
         segs = event.get("segs") or []
-        text = "".join(part.get("utf8", "") for part in segs).replace("\n", " ").strip()
-        if not text or text == "\n":
+        text = clean_caption_text("".join(part.get("utf8", "") for part in segs).replace("\n", " "))
+        if not text:
             continue
         start_ms = event.get("tStartMs", 0)
         dur_ms = event.get("dDurationMs", 0)
         start = start_ms / 1000.0
         end = (start_ms + dur_ms) / 1000.0
         segments.append(CaptionSegment(start=start, end=end, text=text))
-    return _dedupe_captions(segments)
-
-
-def _dedupe_captions(segments: list[CaptionSegment]) -> list[CaptionSegment]:
-    if not segments:
-        return []
-    out: list[CaptionSegment] = [segments[0]]
-    for seg in segments[1:]:
-        prev = out[-1]
-        if seg.text == prev.text and abs(seg.start - prev.start) < 0.35:
-            continue
-        if seg.text.startswith(prev.text) and seg.start <= prev.end + 0.5:
-            out[-1] = CaptionSegment(start=prev.start, end=max(prev.end, seg.end), text=seg.text)
-            continue
-        out.append(seg)
-    return out
+    return normalize_caption_stream(segments)
 
 
 def _pick_caption_files(directory: Path, preferred_langs: list[str]) -> tuple[Optional[Path], Optional[str]]:
@@ -116,6 +95,13 @@ def _load_captions(path: Path) -> list[CaptionSegment]:
     if suffix in {".vtt", ".srt"}:
         return parse_vtt(content)
     return []
+
+
+def load_local_captions(directory: Path, language: str = "pl") -> tuple[list[CaptionSegment], Optional[str]]:
+    caption_path, caption_lang = _pick_caption_files(directory, [language, f"{language}-PL", "en"])
+    if caption_path is None:
+        return [], None
+    return _load_captions(caption_path), caption_lang
 
 
 def _base_ydl_opts() -> dict[str, Any]:

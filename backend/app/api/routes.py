@@ -15,12 +15,18 @@ from app.jobs import run_in_background
 from app.llm.qa import answer_question
 from app.llm.summarize import summarize_segments
 from app.models import Source, Summary
-from app.pipeline import process_text_source, process_upload_source, process_youtube_source
+from app.pipeline import (
+    process_text_source,
+    process_upload_source,
+    process_youtube_source,
+    reprocess_source_from_media,
+)
 from app.schemas import (
     AskRequest,
     AskResponse,
     HealthResponse,
     JobStatusOut,
+    ReprocessRequest,
     SourceDetailOut,
     SourceOut,
     SummarizeRequest,
@@ -179,6 +185,30 @@ async def upload_source(
     db.commit()
 
     run_in_background(process_upload_source, source.id, auto_summarize=auto_summarize)
+    source = db.scalar(select(Source).where(Source.id == source.id).options(selectinload(Source.segments)))
+    assert source is not None
+    return _to_source_out(source)
+
+
+@router.post("/sources/{source_id}/reprocess", response_model=SourceOut)
+def reprocess_source(
+    source_id: int,
+    payload: ReprocessRequest,
+    db: Session = Depends(get_db),
+) -> SourceOut:
+    source = db.get(Source, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    source.status = "pending"
+    source.error = None
+    db.commit()
+    run_in_background(
+        reprocess_source_from_media,
+        source.id,
+        prefer_captions=payload.prefer_captions,
+        force_asr=payload.force_asr,
+        auto_summarize=payload.auto_summarize,
+    )
     source = db.scalar(select(Source).where(Source.id == source.id).options(selectinload(Source.segments)))
     assert source is not None
     return _to_source_out(source)

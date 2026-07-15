@@ -27,21 +27,45 @@ def _local_summary(chunk_text: str, settings: Settings) -> str:
     )
 
 
+def _pick_representative_segments(
+    segments: list[tuple[float, float, str]],
+    count: int = 10,
+) -> list[tuple[float, float, str]]:
+    useful = [(s, e, t.strip()) for s, e, t in segments if len(t.strip()) >= 40]
+    if not useful:
+        useful = [(s, e, t.strip()) for s, e, t in segments if t.strip()]
+    if not useful:
+        return []
+    if len(useful) <= count:
+        return useful
+
+    # Evenly sample across the timeline for a better overview without LLM.
+    picks: list[tuple[float, float, str]] = []
+    last_idx = -999
+    for i in range(count):
+        idx = round(i * (len(useful) - 1) / (count - 1))
+        if idx == last_idx:
+            continue
+        picks.append(useful[idx])
+        last_idx = idx
+    return picks
+
+
 def _extractive_briefing(
     segments: list[tuple[float, float, str]],
     title: str,
 ) -> str:
-    points = []
-    for start, _end, text in segments[:12]:
-        clean = text.strip()
-        if clean:
-            points.append(f"- [{format_timestamp(start)}] {clean}")
+    picks = _pick_representative_segments(segments, count=10)
+    points = [f"- [{format_timestamp(start)}] {text}" for start, _end, text in picks]
     joined = "\n".join(points) if points else "- (brak segmentów)"
+    opener = picks[0][2] if picks else ""
     return (
         f"# Briefing: {title or 'Źródło'}\n\n"
         "## Przegląd\n"
-        "Podsumowanie ekstraktywne (brak OPENAI_API_KEY — użyto fallbacku lokalnego).\n\n"
-        "## Kluczowe punkty\n"
+        f"{opener}\n\n"
+        "_Podsumowanie ekstraktywne (brak OPENAI_API_KEY). "
+        "Ustaw klucz, aby dostać syntezę NotebookLM-style._\n\n"
+        "## Kluczowe punkty z materiału\n"
         f"{joined}\n"
     )
 

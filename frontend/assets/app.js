@@ -219,5 +219,28 @@ document.getElementById("ask-form").addEventListener("submit", async (e) => {
 
 el.refreshBtn.addEventListener("click", () => refreshSources().catch((e) => setStatus(e.message)));
 
+document.getElementById("reprocess-btn").addEventListener("click", async () => {
+  if (!state.selectedId) {
+    setStatus("Najpierw wybierz źródło.");
+    return;
+  }
+  try {
+    setStatus(`Ponowne przetwarzanie #${state.selectedId}...`);
+    await api(`/sources/${state.selectedId}/reprocess`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prefer_captions: true,
+        force_asr: false,
+        auto_summarize: true,
+      }),
+    });
+    await refreshSources();
+    await selectSource(state.selectedId);
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
+
 bindTabs();
 refreshSources().catch((e) => setStatus(e.message));
