@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 
 from app.config import get_settings
 from app.db import get_session, init_db
@@ -15,10 +16,34 @@ from app.pipeline import (
 )
 
 
+def reclaim_stale_jobs(db) -> int:
+    settings = get_settings()
+    stale_before = datetime.now(timezone.utc) - timedelta(seconds=max(60, settings.job_stale_seconds))
+    result = db.execute(
+        update(Source)
+        .where(
+            Source.status == "downloading",
+            Source.claimed_at.is_not(None),
+            Source.claimed_at < stale_before,
+        )
+        .values(
+            status="pending",
+            claimed_at=None,
+            progress_message="requeued_stale",
+        )
+    )
+    db.commit()
+    return int(result.rowcount or 0)
+
+
 def claim_next_pending(db) -> Source | None:
+    now = datetime.now(timezone.utc)
     source = db.scalar(
         select(Source)
-        .where(Source.status == "pending")
+        .where(
+            Source.status == "pending",
+            or_(Source.next_run_at.is_(None), Source.next_run_at <= now),
+        )
         .order_by(Source.id.asc())
         .limit(1)
     )
@@ -27,7 +52,12 @@ def claim_next_pending(db) -> Source | None:
     result = db.execute(
         update(Source)
         .where(Source.id == source.id, Source.status == "pending")
-        .values(status="downloading")
+        .values(
+            status="downloading",
+            claimed_at=now,
+            attempts=(Source.attempts + 1),
+            progress_message="claimed",
+        )
     )
     db.commit()
     if result.rowcount == 0:
@@ -57,6 +87,7 @@ def _dispatch(db, source: Source) -> None:
 
 
 def run_worker_once(db) -> bool:
+    reclaim_stale_jobs(db)
     source = claim_next_pending(db)
     if source is None:
         return False

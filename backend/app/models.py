@@ -16,6 +16,8 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), default="")
     token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    reset_token: Mapped[Optional[str]] = mapped_column(String(64), unique=True, nullable=True, index=True)
+    reset_token_expires: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -33,6 +35,10 @@ class Source(Base):
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
     progress: Mapped[float] = mapped_column(Float, default=0.0)
     progress_message: Mapped[str] = mapped_column(String(255), default="")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3)
+    next_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    claimed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     error_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     error_hint: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

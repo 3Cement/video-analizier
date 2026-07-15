@@ -14,6 +14,12 @@ services:
       - WORKER_MODE=true
       - CAPTIONS_FIRST=true
       - JOB_MAX_WORKERS=2
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
     depends_on:
       - worker
 

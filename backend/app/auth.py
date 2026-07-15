@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -11,18 +11,31 @@ from app.db import get_db
 from app.models import User
 
 
+def _extract_token(
+    request: Request,
+    authorization: Optional[str],
+    x_api_key: Optional[str],
+) -> str | None:
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+        if token:
+            return token
+    if x_api_key and x_api_key.strip():
+        return x_api_key.strip()
+    cookie = request.cookies.get("va_session")
+    if cookie and cookie.strip():
+        return cookie.strip()
+    return None
+
+
 def get_optional_user_id(
+    request: Request,
     authorization: Optional[str] = Header(default=None),
     x_user_id: Optional[str] = Header(default=None),
     x_api_key: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ) -> str:
-    token = None
-    if authorization and authorization.lower().startswith("bearer "):
-        token = authorization[7:].strip()
-    elif x_api_key:
-        token = x_api_key.strip()
-
+    token = _extract_token(request, authorization, x_api_key)
     if token:
         settings = get_settings()
         if settings.api_key and token == settings.api_key.strip():
@@ -38,23 +51,19 @@ def get_optional_user_id(
 
 
 def verify_api_key(
+    request: Request,
     authorization: Optional[str] = Header(default=None),
     x_api_key: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ) -> None:
     settings = get_settings()
     required = settings.api_key.strip()
-    token = None
-    if authorization and authorization.lower().startswith("bearer "):
-        token = authorization[7:].strip()
-    elif x_api_key:
-        token = x_api_key.strip()
+    token = _extract_token(request, authorization, x_api_key)
 
     if settings.auth_required and not token:
         raise HTTPException(status_code=401, detail="Authentication required")
 
     if not required and not settings.auth_required:
-        # Open mode: allow anonymous; optional user tokens still accepted elsewhere.
         return
 
     if required and token and token == required:
@@ -65,3 +74,18 @@ def verify_api_key(
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
     if settings.auth_required:
         raise HTTPException(status_code=401, detail="Invalid or missing token")
+
+
+def require_admin_api_key(
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+    x_api_key: Optional[str] = Header(default=None),
+) -> None:
+    settings = get_settings()
+    required = settings.api_key.strip()
+    if not required:
+        # Open admin stats in local/dev when no API key is configured.
+        return
+    token = _extract_token(request, authorization, x_api_key)
+    if token != required:
+        raise HTTPException(status_code=401, detail="Admin API key required")

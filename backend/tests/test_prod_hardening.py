@@ -1,0 +1,120 @@
+from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
+
+from app.models import Source
+from app.pipeline import _fail_source
+from app.ratelimit import clear_rate_limits, enforce_rate_limit
+from app.worker import claim_next_pending, reclaim_stale_jobs
+from fastapi import HTTPException
+import pytest
+
+
+def test_login_rate_limit(client, monkeypatch):
+    clear_rate_limits()
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    settings = get_settings()
+    monkeypatch.setattr(settings, "login_rate_limit", 3)
+    monkeypatch.setattr(settings, "login_rate_window_seconds", 600)
+    client.post("/api/auth/register", json={"email": "rate@example.com", "password": "secret123"})
+    for _ in range(3):
+        res = client.post("/api/auth/login", json={"email": "rate@example.com", "password": "wrongpass"})
+        assert res.status_code in {401, 429}
+    blocked = client.post("/api/auth/login", json={"email": "rate@example.com", "password": "wrongpass"})
+    assert blocked.status_code == 429
+    clear_rate_limits()
+    get_settings.cache_clear()
+
+
+def test_password_reset_flow(client):
+    clear_rate_limits()
+    client.post("/api/auth/register", json={"email": "reset@example.com", "password": "secret123"})
+    req = client.post("/api/auth/password-reset/request", json={"email": "reset@example.com"})
+    assert req.status_code == 200
+    token = req.json()["reset_token"]
+    assert token
+    conf = client.post(
+        "/api/auth/password-reset/confirm",
+        json={"token": token, "new_password": "newpass123"},
+    )
+    assert conf.status_code == 200
+    assert "va_session" in conf.cookies
+    bad = client.post("/api/auth/login", json={"email": "reset@example.com", "password": "secret123"})
+    assert bad.status_code == 401
+    good = client.post("/api/auth/login", json={"email": "reset@example.com", "password": "newpass123"})
+    assert good.status_code == 200
+
+
+def test_session_cookie_auth(client):
+    clear_rate_limits()
+    res = client.post("/api/auth/register", json={"email": "cookie@example.com", "password": "secret123"})
+    assert res.status_code == 200
+    assert "va_session" in res.cookies
+    listed = client.get("/api/sources")
+    assert listed.status_code == 200
+
+
+def test_fail_source_schedules_retry(db_session):
+    source = Source(source_type="text", title="T", status="downloading", user_id="anonymous", attempts=1, max_attempts=3)
+    db_session.add(source)
+    db_session.commit()
+    _fail_source(db_session, source.id, RuntimeError("connection timed out"))
+    db_session.refresh(source)
+    assert source.status == "pending"
+    assert source.next_run_at is not None
+    assert source.error_code == "network"
+
+
+def test_fail_source_terminal_when_attempts_exhausted(db_session):
+    source = Source(source_type="text", title="T", status="downloading", user_id="anonymous", attempts=3, max_attempts=3)
+    db_session.add(source)
+    db_session.commit()
+    _fail_source(db_session, source.id, RuntimeError("connection timed out"))
+    db_session.refresh(source)
+    assert source.status == "failed"
+
+
+def test_reclaim_stale_and_claim(db_session, monkeypatch):
+    monkeypatch.setenv("JOB_STALE_SECONDS", "60")
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    old = datetime.now(timezone.utc) - timedelta(hours=2)
+    stuck = Source(
+        source_type="text",
+        title="Stuck",
+        status="downloading",
+        user_id="anonymous",
+        claimed_at=old,
+        attempts=1,
+    )
+    pending = Source(source_type="text", title="P", status="pending", user_id="anonymous")
+    db_session.add_all([stuck, pending])
+    db_session.commit()
+    assert reclaim_stale_jobs(db_session) >= 1
+    db_session.refresh(stuck)
+    assert stuck.status == "pending"
+    claimed = claim_next_pending(db_session)
+    assert claimed is not None
+    assert claimed.status == "downloading"
+    assert claimed.attempts >= 1
+    get_settings.cache_clear()
+
+
+def test_admin_queue(client, db_session):
+    db_session.add(Source(source_type="text", title="Q", status="pending", user_id="anonymous"))
+    db_session.commit()
+    res = client.get("/api/admin/queue")
+    assert res.status_code == 200
+    assert res.json()["pending"] >= 1
+
+
+def test_enforce_rate_limit_unit():
+    clear_rate_limits()
+    enforce_rate_limit("k", limit=2, window_seconds=60, detail="nope")
+    enforce_rate_limit("k", limit=2, window_seconds=60, detail="nope")
+    with pytest.raises(HTTPException) as exc:
+        enforce_rate_limit("k", limit=2, window_seconds=60, detail="nope")
+    assert exc.value.status_code == 429
+    clear_rate_limits()

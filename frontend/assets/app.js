@@ -143,7 +143,7 @@ async function api(path, options = {}) {
   Object.entries(auth).forEach(([k, v]) => {
     if (!headers.has(k)) headers.set(k, v);
   });
-  options = { ...options, headers };
+  options = { ...options, headers, credentials: "same-origin" };
   const res = await fetch(`/api${path}`, options);
   if (!res.ok) {
     let detail = res.statusText;
@@ -850,6 +850,11 @@ document.getElementById("auth-register")?.addEventListener("click", async () => 
 });
 
 document.getElementById("auth-logout")?.addEventListener("click", async () => {
+  try {
+    await api("/auth/logout", { method: "POST" });
+  } catch (_) {
+    /* ignore */
+  }
   localStorage.removeItem("va_token");
   localStorage.removeItem("va_email");
   document.getElementById("auth-status").textContent = "Wylogowano.";
@@ -985,3 +990,55 @@ if (email) {
   if (status) status.textContent = `Zalogowano: ${email}`;
 }
 loadCollections();
+
+
+document.getElementById("password-reset-request")?.addEventListener("click", async () => {
+  const email = document.getElementById("auth-email").value.trim();
+  const status = document.getElementById("auth-status");
+  try {
+    const data = await api("/auth/password-reset/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    if (data.reset_link) {
+      status.textContent = `Link resetu (MVP): ${data.reset_link}`;
+      if (data.reset_token) {
+        document.getElementById("reset-token").value = data.reset_token;
+      }
+    } else {
+      status.textContent = "Jeśli konto istnieje, wyślemy instrukcję resetu.";
+    }
+  } catch (err) {
+    status.textContent = err.message;
+  }
+});
+
+document.getElementById("password-reset-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const token = document.getElementById("reset-token").value.trim();
+  const newPassword = document.getElementById("reset-password").value;
+  const status = document.getElementById("auth-status");
+  try {
+    const data = await api("/auth/password-reset/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, new_password: newPassword }),
+    });
+    localStorage.setItem("va_token", data.token);
+    localStorage.setItem("va_email", data.email);
+    status.textContent = `Hasło zmienione. Zalogowano: ${data.email}`;
+    document.getElementById("auth-summary").textContent = `Konto: ${data.email}`;
+    await refreshSources();
+  } catch (err) {
+    status.textContent = err.message;
+  }
+});
+
+const params = new URLSearchParams(window.location.search);
+if (params.get("reset_token")) {
+  const input = document.getElementById("reset-token");
+  if (input) input.value = params.get("reset_token");
+  const box = document.querySelector(".auth-box");
+  if (box) box.open = true;
+}

@@ -356,6 +356,11 @@ def reprocess_source(
     source.error = None
     source.error_code = None
     source.error_hint = None
+    source.attempts = 0
+    source.next_run_at = None
+    source.claimed_at = None
+    source.progress = 0.0
+    source.progress_message = "reprocess_queued"
     db.commit()
     run_in_background(
         reprocess_source_from_media,

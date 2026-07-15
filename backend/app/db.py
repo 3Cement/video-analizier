@@ -58,6 +58,12 @@ def migrate_schema() -> None:
     _sqlite_add_column_if_missing(engine, "sources", "author", "author VARCHAR(255)")
     _sqlite_add_column_if_missing(engine, "sources", "show_title", "show_title VARCHAR(512)")
     _sqlite_add_column_if_missing(engine, "sources", "published_at", "published_at VARCHAR(64)")
+    _sqlite_add_column_if_missing(engine, "sources", "attempts", "attempts INTEGER DEFAULT 0")
+    _sqlite_add_column_if_missing(engine, "sources", "max_attempts", "max_attempts INTEGER DEFAULT 3")
+    _sqlite_add_column_if_missing(engine, "sources", "next_run_at", "next_run_at DATETIME")
+    _sqlite_add_column_if_missing(engine, "sources", "claimed_at", "claimed_at DATETIME")
+    _sqlite_add_column_if_missing(engine, "users", "reset_token", "reset_token VARCHAR(64)")
+    _sqlite_add_column_if_missing(engine, "users", "reset_token_expires", "reset_token_expires DATETIME")
 
 
 def init_db() -> None:

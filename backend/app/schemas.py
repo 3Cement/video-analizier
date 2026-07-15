@@ -244,3 +244,31 @@ class SearchHit(BaseModel):
 class SearchResponse(BaseModel):
     query: str
     hits: list[SearchHit] = []
+
+
+
+class PasswordResetRequest(BaseModel):
+    email: str = Field(..., min_length=5)
+
+
+class PasswordResetConfirm(BaseModel):
+    token: str = Field(..., min_length=8)
+    new_password: str = Field(..., min_length=6)
+
+
+class PasswordResetOut(BaseModel):
+    ok: bool = True
+    reset_token: Optional[str] = None
+    reset_link: Optional[str] = None
+
+
+class QueueStatsOut(BaseModel):
+    pending: int = 0
+    downloading: int = 0
+    transcribing: int = 0
+    summarizing: int = 0
+    ready: int = 0
+    failed: int = 0
+    retry_scheduled: int = 0
+    oldest_pending_id: Optional[int] = None
+    oldest_pending_age_seconds: Optional[float] = None

@@ -23,16 +23,42 @@ from app.media import probe_duration_seconds
 from app.models import Segment, Source, Summary
 
 
+_RETRYABLE_ERROR_CODES = {
+    "network",
+    "youtube_bot_check",
+    "youtube_format",
+    "processing_failed",
+}
+
+
 def _fail_source(db: Session, source_id: int, exc: BaseException) -> None:
     db.rollback()
     source = db.get(Source, source_id)
     if source is None:
         return
+    settings = get_settings()
     job_error = classify_job_error(exc)
-    source.status = "failed"
     source.error = job_error.message
     source.error_code = job_error.code
     source.error_hint = job_error.hint
+    source.claimed_at = None
+
+    max_attempts = source.max_attempts or settings.job_max_attempts
+    attempts = int(source.attempts or 0)
+    can_retry = job_error.code in _RETRYABLE_ERROR_CODES and attempts < max_attempts
+    if can_retry:
+        from datetime import datetime, timedelta, timezone
+
+        delay = min(300.0, settings.job_retry_base_seconds * (2 ** max(0, attempts - 1)))
+        source.status = "pending"
+        source.next_run_at = datetime.now(timezone.utc) + timedelta(seconds=delay)
+        source.progress = max(5.0, float(source.progress or 0))
+        source.progress_message = f"retry_scheduled_in_{int(delay)}s"
+        db.commit()
+        return
+
+    source.status = "failed"
+    source.next_run_at = None
     source.progress = 100.0
     source.progress_message = "failed"
     db.commit()

@@ -46,6 +46,16 @@ class Settings(BaseSettings):
     daily_audio_limit: int = 20
     daily_article_limit: int = 40
     auth_required: bool = False
+    cookie_secure: bool = False
+    session_max_age_seconds: int = 60 * 60 * 24 * 30
+    login_rate_limit: int = 10
+    login_rate_window_seconds: int = 300
+    register_rate_limit: int = 5
+    register_rate_window_seconds: int = 3600
+    job_max_attempts: int = 3
+    job_stale_seconds: int = 1800
+    job_retry_base_seconds: float = 5.0
+    password_reset_ttl_seconds: int = 3600
     worker_mode: bool = False
     worker_poll_seconds: float = 3.0
     job_max_workers: int = 2

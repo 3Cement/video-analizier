@@ -57,3 +57,13 @@ Bez klucza LLM aplikacja i tak działa — zwraca podsumowanie ekstraktywne z ti
 - Library: `/api/library/search`, collections, tags, notes.
 - PWA: `/manifest.webmanifest` + `/sw.js`.
 - New ingest deps in image via `requirements.txt` (trafilatura, ebooklib, python-docx).
+
+
+## Production hardening
+
+- Login/register rate limits (in-memory per process).
+- HttpOnly session cookie `va_session` (SameSite=Lax); Bearer still supported.
+- Password reset: `POST /api/auth/password-reset/request` and `/confirm` (MVP returns `reset_link` when no SMTP).
+- Job retries with backoff: `JOB_MAX_ATTEMPTS`, `JOB_RETRY_BASE_SECONDS`, stale reclaim `JOB_STALE_SECONDS`.
+- Queue monitor: `GET /api/admin/queue` (requires `API_KEY` when configured).
+- Smoke: `make smoke-docker`.

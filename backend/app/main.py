@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 from app.api.routes import router
 from app.api.auth_routes import router as auth_router
 from app.api.library import router as library_router
+from app.api.admin import router as admin_router
 from app.config import get_settings
 from app.db import get_session, init_db
 from app.models import Source
@@ -40,6 +41,7 @@ def create_app() -> FastAPI:
     app.include_router(router, prefix="/api")
     app.include_router(auth_router, prefix="/api")
     app.include_router(library_router, prefix="/api/library")
+    app.include_router(admin_router, prefix="/api")
 
     assets_dir = FRONTEND_DIR / "assets"
     if FRONTEND_DIR.exists() and assets_dir.exists():
