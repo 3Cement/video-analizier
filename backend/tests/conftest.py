@@ -1,0 +1,61 @@
+import os
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+os.environ.setdefault("OPENAI_API_KEY", "test-key-not-used")
+
+
+@pytest.fixture()
+def db_session(tmp_path: Path):
+    os.environ["DATA_DIR"] = str(tmp_path / "data")
+    os.environ["MEDIA_DIR"] = str(tmp_path / "media")
+    os.environ["DATABASE_URL"] = "sqlite://"
+
+    from app.config import get_settings
+    from app.db import Base, configure_engine
+
+    get_settings.cache_clear()
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    configure_engine("sqlite://", poolclass=StaticPool)
+    # Rebind using the same StaticPool in-memory engine for shared state
+    from app import db as db_module
+
+    db_module.engine = engine
+    db_module.SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    Base.metadata.create_all(bind=engine)
+    session = db_module.SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
+        Base.metadata.drop_all(bind=engine)
+        get_settings.cache_clear()
+
+
+@pytest.fixture()
+def client(db_session):
+    from app.db import get_db
+    from app.main import create_app
+
+    app = create_app()
+
+    def _override_db():
+        try:
+            yield db_session
+        finally:
+            pass
+
+    app.dependency_overrides[get_db] = _override_db
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()

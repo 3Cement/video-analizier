@@ -1,0 +1,48 @@
+{
+  "title": "Pilot PL bez napisów (symulacja kanału kettlebell)",
+  "audio": "/workspace/data/media/pilot_pl_no_captions.mp3",
+  "transcript_method": "whisper",
+  "segment_count": 6,
+  "transcript": "[00:00] Cześć! Tu Maciej. Dziś pokażę domowy trening z Kettlebell.\n[00:05] Zaczynamy od rozgrzewki barków przez dwie minuty.\n[00:09] Potem robimy trzy serie swingów po piętnaście powtórzeń.\n[00:13] Między seriami odpoczywamy 45 sekund.\n[00:17] Na koniec dodajemy goble skład i krótkie rozciąganie bioder.\n[00:21] Pamiętajcie o napięciu brzucha i równym oddechu.",
+  "summary": "# Briefing: Pilot PL bez napisów (symulacja kanału kettlebell)\n\n## Przegląd\nPodsumowanie ekstraktywne (brak OPENAI_API_KEY — użyto fallbacku lokalnego).\n\n## Kluczowe punkty\n- [00:00] Cześć! Tu Maciej. Dziś pokażę domowy trening z Kettlebell.\n- [00:05] Zaczynamy od rozgrzewki barków przez dwie minuty.\n- [00:09] Potem robimy trzy serie swingów po piętnaście powtórzeń.\n- [00:13] Między seriami odpoczywamy 45 sekund.\n- [00:17] Na koniec dodajemy goble skład i krótkie rozciąganie bioder.\n- [00:21] Pamiętajcie o napięciu brzucha i równym oddechu.\n",
+  "answer": "Odpowiedź ekstraktywna (brak OPENAI_API_KEY):\n- [00:00] Cześć! Tu Maciej. Dziś pokażę domowy trening z Kettlebell.\n- [00:05] Zaczynamy od rozgrzewki barków przez dwie minuty.\n- [00:09] Potem robimy trzy serie swingów po piętnaście powtórzeń.\n- [00:13] Między seriami odpoczywamy 45 sekund.\n- [00:17] Na koniec dodajemy goble skład i krótkie rozciąganie bioder.\n- [00:21] Pamiętajcie o napięciu brzucha i równym oddechu.",
+  "citations": [
+    {
+      "start": 0.0,
+      "end": 5.0,
+      "timestamp": "00:00",
+      "text": "Cześć! Tu Maciej. Dziś pokażę domowy trening z Kettlebell."
+    },
+    {
+      "start": 5.0,
+      "end": 9.0,
+      "timestamp": "00:05",
+      "text": "Zaczynamy od rozgrzewki barków przez dwie minuty."
+    },
+    {
+      "start": 9.0,
+      "end": 13.0,
+      "timestamp": "00:09",
+      "text": "Potem robimy trzy serie swingów po piętnaście powtórzeń."
+    },
+    {
+      "start": 13.0,
+      "end": 17.0,
+      "timestamp": "00:13",
+      "text": "Między seriami odpoczywamy 45 sekund."
+    },
+    {
+      "start": 17.0,
+      "end": 21.0,
+      "timestamp": "00:17",
+      "text": "Na koniec dodajemy goble skład i krótkie rozciąganie bioder."
+    },
+    {
+      "start": 21.0,
+      "end": 25.0,
+      "timestamp": "00:21",
+      "text": "Pamiętajcie o napięciu brzucha i równym oddechu."
+    }
+  ],
+  "note": "Pilot audio path used when YouTube download is blocked by bot-check. For real YouTube videos set YTDLP_COOKIES to a Netscape cookies.txt export."
+}

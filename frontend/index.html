@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>video-analizier</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Source+Sans+3:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <div class="atmosphere" aria-hidden="true"></div>
+    <main class="shell">
+      <header class="brand-block">
+        <p class="brand">video-analizier</p>
+        <h1>Źródła w wiedzę</h1>
+        <p class="lede">
+          Wklej film YouTube bez napisów, wrzuć PDF lub tekst — dostaniesz
+          transkrypt, briefing i odpowiedzi z cytowaniami czasowymi.
+        </p>
+      </header>
+
+      <section class="panel" aria-labelledby="ingest-title">
+        <h2 id="ingest-title">Dodaj źródło</h2>
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-tab="youtube" type="button">YouTube</button>
+          <button class="tab" data-tab="upload" type="button">Plik</button>
+          <button class="tab" data-tab="text" type="button">Tekst</button>
+        </div>
+
+        <form id="youtube-form" class="form tab-panel active" data-panel="youtube">
+          <label>
+            URL filmu
+            <input
+              id="youtube-url"
+              name="url"
+              type="url"
+              required
+              placeholder="https://www.youtube.com/watch?v=..."
+            />
+          </label>
+          <label class="inline">
+            <input id="youtube-summarize" type="checkbox" checked />
+            Automatyczne podsumowanie
+          </label>
+          <button type="submit">Analizuj film</button>
+        </form>
+
+        <form id="upload-form" class="form tab-panel" data-panel="upload">
+          <label>
+            PDF, TXT, MD lub audio
+            <input id="upload-file" name="file" type="file" required />
+          </label>
+          <label class="inline">
+            <input id="upload-summarize" type="checkbox" checked />
+            Automatyczne podsumowanie
+          </label>
+          <button type="submit">Wgraj i analizuj</button>
+        </form>
+
+        <form id="text-form" class="form tab-panel" data-panel="text">
+          <label>
+            Tytuł
+            <input id="text-title" name="title" type="text" value="Notatka" />
+          </label>
+          <label>
+            Treść
+            <textarea id="text-body" name="text" rows="8" required></textarea>
+          </label>
+          <label class="inline">
+            <input id="text-summarize" type="checkbox" checked />
+            Automatyczne podsumowanie
+          </label>
+          <button type="submit">Dodaj tekst</button>
+        </form>
+      </section>
+
+      <section class="panel" aria-labelledby="status-title">
+        <div class="row-between">
+          <h2 id="status-title">Źródła</h2>
+          <button id="refresh-btn" class="ghost" type="button">Odśwież</button>
+        </div>
+        <p id="status-line" class="status">Brak aktywnego przetwarzania.</p>
+        <ul id="source-list" class="source-list"></ul>
+      </section>
+
+      <section class="panel" aria-labelledby="detail-title">
+        <h2 id="detail-title">Wybrane źródło</h2>
+        <p id="detail-meta" class="muted">Wybierz źródło z listy.</p>
+        <article id="summary-box" class="content-box"></article>
+        <details id="transcript-box" class="content-box">
+          <summary>Transkrypt / segmenty</summary>
+          <pre id="transcript-pre"></pre>
+        </details>
+
+        <form id="ask-form" class="form">
+          <label>
+            Pytanie do źródła
+            <input
+              id="ask-input"
+              type="text"
+              placeholder="Jakie są główne kroki / wnioski?"
+              required
+            />
+          </label>
+          <button type="submit">Zapytaj</button>
+        </form>
+        <article id="answer-box" class="content-box"></article>
+      </section>
+    </main>
+    <script src="/assets/app.js"></script>
+  </body>
+</html>
