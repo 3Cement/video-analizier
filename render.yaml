@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: video-analizier
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_BASE_URL
+        value: https://api.openai.com/v1
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: WHISPER_MODEL
+        value: small
+      - key: WHISPER_DEVICE
+        value: cpu
+      - key: WHISPER_COMPUTE_TYPE
+        value: int8
+      - key: WHISPER_LANGUAGE
+        value: pl
+      - key: YTDLP_PROXY
+        sync: false
+      - key: YTDLP_COOKIES
+        sync: false
+      - key: DATA_DIR
+        value: /app/data
+      - key: MEDIA_DIR
+        value: /app/data/media
+      - key: DATABASE_URL
+        value: sqlite:////app/data/app.db
+    disk:
+      name: data
+      mountPath: /app/data
+      sizeGB: 10

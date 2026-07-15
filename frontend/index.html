@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>video-analizier — podsumowanie YouTube po polsku (także bez napisów)</title>
+    <meta
+      name="description"
+      content="Wklej link YouTube i otrzymaj czytelne podsumowanie z timestampami. Działa też bez napisów dzięki Whisper ASR. OpenAI, Anthropic lub Cursor."
+    />
+    <meta name="robots" content="index,follow" />
+    <link rel="canonical" href="/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="video-analizier" />
+    <meta property="og:locale" content="pl_PL" />
+    <meta property="og:title" content="video-analizier — podsumowanie YouTube po polsku" />
+    <meta
+      property="og:description"
+      content="Podsumowania filmów YouTube z timestampami. Działa nawet gdy brak napisów."
+    />
+    <meta property="og:image" content="/assets/og-default.svg" />
+    <meta property="og:url" content="/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="video-analizier — podsumowanie YouTube" />
+    <meta
+      name="twitter:description"
+      content="Wklej link → podsumowanie z wnioskami i timestampami. Także bez napisów."
+    />
+    <meta name="twitter:image" content="/assets/og-default.svg" />
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Source+Sans+3:wght@400;600;700&display=swap"
+      rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
+    />
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Source+Sans+3:wght@400;600;700&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
+    <link rel="stylesheet" href="/assets/styles.css" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "video-analizier",
+        "applicationCategory": "MultimediaApplication",
+        "operatingSystem": "Web",
+        "inLanguage": "pl",
+        "description": "Narzędzie do podsumowań filmów YouTube po polsku z timestampami i Q&A.",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "PLN" }
+      }
+    </script>
+  </head>
+  <body>
+    <div class="atmosphere" aria-hidden="true"></div>
+    <main class="shell">
+      <header class="hero">
+        <div class="row-between">
+          <h1 class="brand">video-analizier</h1>
+          <button id="llm-toggle" class="ghost" type="button">Klucze LLM</button>
+        </div>
+        <p class="lede">
+          Wklej link do YouTube — dostaniesz czytelne podsumowanie i kluczowe
+          wnioski, nawet gdy film nie ma napisów.
+        </p>
+        <p id="quota-line" class="muted quota-line">Sprawdzam limit dzienny…</p>
+
+        <details id="llm-settings" class="llm-settings">
+          <summary class="sr-only">Ustawienia LLM</summary>
+          <form id="llm-form" class="form">
+            <p class="muted" id="llm-status-line">Wybierz providera i wklej klucz API.</p>
+            <label>
+              Provider
+              <select id="llm-provider">
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="cursor">Cursor (OpenAI-compatible)</option>
+              </select>
+            </label>
+            <div class="provider-fields" data-provider="openai">
+              <label>
+                OpenAI API key
+                <input id="openai-api-key" type="password" autocomplete="off" placeholder="sk-..." />
+              </label>
+              <label>
+                Model
+                <input id="openai-model" type="text" placeholder="gpt-4o-mini" />
+              </label>
+            </div>
+            <div class="provider-fields" data-provider="anthropic" hidden>
+              <label>
+                Anthropic API key
+                <input id="anthropic-api-key" type="password" autocomplete="off" placeholder="sk-ant-..." />
+              </label>
+              <label>
+                Model
+                <input id="anthropic-model" type="text" placeholder="claude-sonnet-4-20250514" />
+              </label>
+            </div>
+            <div class="provider-fields" data-provider="cursor" hidden>
+              <label>
+                Cursor / OpenAI-compatible API key
+                <input id="cursor-api-key" type="password" autocomplete="off" placeholder="key..." />
+              </label>
+              <label>
+                Base URL
+                <input id="cursor-base-url" type="url" placeholder="https://api.openai.com/v1" />
+              </label>
+              <label>
+                Model
+                <input id="cursor-model" type="text" placeholder="gpt-4o-mini" />
+              </label>
+            </div>
+            <button type="submit">Zapisz klucz</button>
+          </form>
+        </details>
+
+        <form id="youtube-form" class="hero-form">
+          <label class="sr-only" for="youtube-url">Link YouTube / artykuł / podcast</label>
+          <input
+            id="youtube-url"
+            name="url"
+            type="url"
+            required
+            autocomplete="off"
+            placeholder="YouTube, artykuł, RSS lub plik MP3…"
+          />
+          <button id="submit-btn" type="submit">Analizuj</button>
+        </form>
+        <label class="checkbox-row">
+          <input id="transcript-only" type="checkbox" />
+          Tylko transkrypt (bez podsumowania LLM)
+        </label>
+        <p id="status-line" class="status" aria-live="polite">Gotowe do analizy.</p>
+        <p id="error-box" class="error-box" hidden></p>
+        <ol id="steps" class="steps" hidden>
+          <li data-step="downloading">Pobieranie audio</li>
+          <li data-step="transcribing">Transkrypcja / napisy</li>
+          <li data-step="summarizing">Budowanie podsumowania</li>
+          <li data-step="ready">Gotowe</li>
+        </ol>
+      </header>
+
+      <section id="result" class="result" hidden>
+        <div class="result-head">
+          <div>
+            <p class="eyebrow">Podsumowanie</p>
+            <h2 id="result-title">—</h2>
+            <p id="result-meta" class="muted"></p>
+          </div>
+          <a id="result-link" class="ghost-link" href="#" target="_blank" rel="noreferrer">
+            Otwórz na YouTube
+          </a>
+        </div>
+
+        <article id="summary-box" class="summary"></article>
+
+        <div class="result-actions">
+          <button id="retry-btn" class="ghost danger" type="button" hidden>Ponów analizę</button>
+          <button id="force-asr-btn" class="ghost" type="button" hidden>Force ASR (Whisper)</button>
+          <button id="share-btn" class="ghost" type="button" hidden>Udostępnij</button>
+          <button id="export-md-btn" class="ghost" type="button" hidden>Eksport MD</button>
+          <button id="extract-facts-btn" class="ghost" type="button" hidden>Wyciągnij dane</button>
+          <button id="summarize-btn" class="ghost" type="button" hidden>Wygeneruj podsumowanie</button>
+          <button id="delete-btn" class="ghost danger" type="button" hidden>Usuń</button>
+          <button id="ask-toggle" class="ghost" type="button">Zadaj pytanie</button>
+          <button id="transcript-toggle" class="ghost" type="button">Pokaż transkrypt</button>
+          <button id="copy-summary" class="ghost" type="button">Kopiuj podsumowanie</button>
+        </div>
+        <p id="share-url-line" class="muted" hidden></p>
+
+        <form id="ask-form" class="ask-form" hidden>
+          <label>
+            Pytanie
+            <input
+              id="ask-input"
+              type="text"
+              placeholder="Np. Jak często ćwiczyć według tego filmu?"
+              required
+            />
+          </label>
+          <button type="submit">Zapytaj</button>
+        </form>
+        <article id="answer-box" class="answer" hidden></article>
+
+        <details id="transcript-box" class="transcript">
+          <summary>Transkrypt z timestampami</summary>
+          <pre id="transcript-pre" class="transcript-lines"></pre>
+        </details>
+      </section>
+
+      <section class="history" aria-labelledby="history-title">
+        <div class="row-between">
+          <h2 id="history-title">Ostatnie analizy</h2>
+          <button id="refresh-btn" class="ghost" type="button">Odśwież</button>
+        </div>
+        <ul id="source-list" class="source-list"></ul>
+      </section>
+
+      <details class="more-sources">
+        <summary>Inne źródła: artykuł, podcast, książka, playlista</summary>
+        <div class="more-grid">
+          <form id="article-form" class="form">
+            <label>
+              Artykuł (URL strony)
+              <input id="article-url" type="url" required placeholder="https://example.com/post" />
+            </label>
+            <button type="submit">Pobierz artykuł</button>
+          </form>
+          <form id="podcast-form" class="form">
+            <label>
+              Podcast: odcinek lub RSS
+              <input id="podcast-url" type="url" required placeholder="https://…/episode.mp3 lub RSS" />
+            </label>
+            <label>
+              Max odcinków z RSS
+              <input id="podcast-max" type="number" min="1" max="20" value="3" />
+            </label>
+            <button type="submit">Transkrybuj podcast</button>
+          </form>
+          <form id="playlist-form" class="form">
+            <label>
+              Playlista YouTube (jeden URL w linii)
+              <textarea
+                id="playlist-urls"
+                rows="4"
+                placeholder="https://www.youtube.com/watch?v=...&#10;https://youtu.be/..."
+              ></textarea>
+            </label>
+            <button type="submit">Dodaj playlistę</button>
+          </form>
+          <form id="upload-form" class="form">
+            <label>
+              Plik: PDF / EPUB / TXT / audio / audiobook
+              <input id="upload-file" name="file" type="file" accept=".pdf,.epub,.txt,.md,.mp3,.m4a,.m4b,.wav,.ogg,.opus,.flac,.aac,.mp4,.mkv,.webm" required />
+            </label>
+            <button type="submit">Wgraj i analizuj</button>
+          </form>
+          <form id="text-form" class="form">
+            <label>
+              Tytuł
+              <input id="text-title" name="title" type="text" value="Notatka" />
+            </label>
+            <label>
+              Treść
+              <textarea id="text-body" name="text" rows="5" required></textarea>
+            </label>
+            <button type="submit">Dodaj tekst</button>
+          </form>
+        </div>
+      </details>
+
+      <section class="faq" aria-labelledby="faq-title">
+        <h2 id="faq-title">Jak działa podsumowanie YouTube?</h2>
+        <details>
+          <summary>Czy działa bez napisów?</summary>
+          <p>
+            Tak. Jeśli film nie ma napisów, używamy Whisper ASR po polsku
+            (`WHISPER_MODEL`, domyślnie small).
+          </p>
+        </details>
+        <details>
+          <summary>Jakie klucze LLM mogę podłączyć?</summary>
+          <p>OpenAI, Anthropic albo klucz OpenAI-compatible (np. jak w Cursor → Models).</p>
+        </details>
+        <details>
+          <summary>Czy mogę udostępnić wynik?</summary>
+          <p>
+            Tak — przycisk „Udostępnij” tworzy publiczną stronę
+            <code>/s/…</code> z podsumowaniem (z meta OG pod SEO/social).
+          </p>
+        </details>
+        <details>
+          <summary>Czy YouTube czasem blokuje pobieranie?</summary>
+          <p>
+            Na IP datacenter bywa bot-check. Pomaga
+            <code>YTDLP_PROXY</code> lub <code>YTDLP_COOKIES</code>.
+          </p>
+        </details>
+      </section>
+    </main>
+    <script src="/assets/app.js" defer></script>
+  </body>
+</html>
