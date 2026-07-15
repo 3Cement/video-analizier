@@ -11,6 +11,7 @@ from app.ingest.pdf import extract_pdf_text
 from app.ingest.text import load_text_file, text_to_segments
 from app.ingest.youtube import ingest_youtube, load_local_captions
 from app.llm.summarize import summarize_segments
+from app.media import probe_duration_seconds
 from app.models import Segment, Source, Summary
 
 
@@ -163,8 +164,11 @@ def process_upload_source(db: Session, source_id: int, auto_summarize: bool = Tr
             source.status = "transcribing"
             source.transcript_method = "whisper"
             db.commit()
+            source.duration_seconds = probe_duration_seconds(path)
             asr = transcribe_audio(path, language=source.language, settings=settings)
             rows = [(s.start, s.end, s.text) for s in asr]
+            if source.duration_seconds is None and rows:
+                source.duration_seconds = float(rows[-1][1])
         else:
             raise RuntimeError(f"Unsupported file type: {suffix}")
 

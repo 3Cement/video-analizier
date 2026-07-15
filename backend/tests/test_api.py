@@ -58,3 +58,26 @@ def test_youtube_create_queues_job(client):
         assert res.status_code == 200
         assert res.json()["source_type"] == "youtube"
         assert bg.called
+
+
+def test_reprocess_and_delete(client, db_session):
+    source = Source(
+        source_type="youtube",
+        title="Do usuniecia",
+        url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        status="ready",
+        transcript_method="captions",
+    )
+    db_session.add(source)
+    db_session.commit()
+    db_session.refresh(source)
+
+    with patch("app.api.routes.run_in_background") as bg:
+        res = client.post(f"/api/sources/{source.id}/reprocess", json={"force_asr": False})
+        assert res.status_code == 200
+        assert bg.called
+
+    deleted = client.delete(f"/api/sources/{source.id}")
+    assert deleted.status_code == 200
+    assert deleted.json()["status"] == "deleted"
+    assert db_session.get(Source, source.id) is None

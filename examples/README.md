@@ -42,3 +42,8 @@ export YTDLP_PROXY=http://HOST:PORT
 export YTDLP_COOKIES=/path/to/cookies.txt
 PYTHONPATH=backend python -m app analyze "https://www.youtube.com/watch?v=VIDEO_ID" --summarize
 ```
+
+### ASR smoke test
+
+`asr_clip_test.json` — Whisper (`tiny`) on a 90s clip from the same video.
+Shows that ASR path works end-to-end; for Polish production use captions when available or `WHISPER_MODEL=small+`.

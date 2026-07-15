@@ -1,0 +1,7 @@
+{
+  "title": "ASR clip 90s - Treningi w domu",
+  "transcript_method": "whisper",
+  "segment_count": 21,
+  "note": "Whisper tiny on 90s Polish clip — usable smoke test, quality much lower than captions. Prefer captions or whisper>=small for PL.",
+  "transcript_preview": "[0.0] To pewnie wiedziałeś, kiedy się reklamy, że obiecyją Ci nie samowite transformaty i przemiany,\n[4.6] jeśli będziesz tylko i wyłącznie mieć świecieć i w domu.\n[7.0] I prawda, taka, że omen, nieknie, nie mówią Ci wszystkiego do końca.\n[12.6] Ale ja tu zrobię dzisiaj.\n[14.9] I powiem Ci ile razy, tak naprawdę potrzebujesz świecieć, żeby widzieć jakiekolwiek efekty,\n[20.7] co zrobić, żeby było to możliwe do utrzymania nawet, kiedy masz bar do napięty grafii,\n[25.8] i porodzina i mnóstwo obowiąków i jak najlepiej ćwiczyć, żeby wykorzystać potencjału.\n[31.2] Czasum, który posiada aż do rzeczywistego maktymy."
+}

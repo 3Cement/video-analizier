@@ -15,6 +15,83 @@ If the answer is not in the source, say that clearly in Polish.
 Respond in Polish."""
 
 _TS_RE = re.compile(r"\[(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\]")
+_STOPWORDS = {
+    "jaki",
+    "jaka",
+    "jakie",
+    "jaką",
+    "ile",
+    "czy",
+    "jest",
+    "są",
+    "oraz",
+    "żeby",
+    "aby",
+    "tego",
+    "tym",
+    "tej",
+    "dla",
+    "bez",
+    "nie",
+    "tak",
+    "się",
+    "po",
+    "na",
+    "do",
+    "od",
+    "za",
+    "co",
+    "w",
+    "z",
+    "i",
+    "a",
+    "o",
+    "u",
+}
+
+
+def _stem_token(token: str) -> str:
+    """Very light Polish stemming for keyword matching."""
+    t = token.lower()
+    for suffix in (
+        "ami",
+        "ach",
+        "owi",
+        "owie",
+        "ych",
+        "ich",
+        "ego",
+        "emu",
+        "ymi",
+        "imi",
+        "ymi",
+        "iem",
+        "om",
+        "em",
+        "ie",
+        "ów",
+        "ą",
+        "ę",
+        "u",
+        "y",
+        "i",
+        "a",
+        "e",
+        "o",
+    ):
+        if len(t) > len(suffix) + 3 and t.endswith(suffix):
+            return t[: -len(suffix)]
+    return t
+
+
+def _question_stems(question: str) -> set[str]:
+    tokens = re.findall(r"\w+", question.lower(), flags=re.UNICODE)
+    stems = set()
+    for tok in tokens:
+        if len(tok) <= 2 or tok in _STOPWORDS:
+            continue
+        stems.add(_stem_token(tok))
+    return stems
 
 
 def _ts_to_seconds(match: re.Match[str]) -> float:
@@ -29,25 +106,24 @@ def _rank_segments(
     question: str,
     limit: int = 24,
 ) -> list[tuple[float, float, str]]:
-    tokens = {t.lower() for t in re.findall(r"\w+", question, flags=re.UNICODE) if len(t) > 2}
-    if not tokens:
+    stems = _question_stems(question)
+    if not stems:
         return segments[:limit]
 
     scored: list[tuple[int, tuple[float, float, str]]] = []
     for seg in segments:
-        text = seg[2].lower()
-        score = sum(1 for tok in tokens if tok in text)
+        words = re.findall(r"\w+", seg[2].lower(), flags=re.UNICODE)
+        seg_stems = {_stem_token(w) for w in words if len(w) > 2}
+        score = sum(1 for stem in stems if stem in seg_stems or any(stem in s for s in seg_stems))
+        # Boost numeric answers for "ile" questions
+        if "ile" in question.lower() and re.search(r"\d", seg[2]):
+            score += 2
         scored.append((score, seg))
     scored.sort(key=lambda item: (-item[0], item[1][0]))
     top = [seg for score, seg in scored if score > 0][:limit]
-    if len(top) < 8:
-        # mix in chronological coverage for short sources
-        chrono = segments[: max(0, 8 - len(top))]
-        seen = {(s[0], s[2]) for s in top}
-        for seg in chrono:
-            key = (seg[0], seg[2])
-            if key not in seen:
-                top.append(seg)
+    if not top:
+        return segments[: min(limit, len(segments))]
+    # Keep chronological order for readability after ranking.
     top.sort(key=lambda s: s[0])
     return top
 
@@ -92,20 +168,25 @@ def _extractive_answer(
     question: str,
     segments: list[tuple[float, float, str]],
 ) -> tuple[str, list[Citation]]:
-    ranked = _rank_segments(segments, question, limit=6)
-    # Prefer segments that actually matched keywords
-    tokens = {t.lower() for t in re.findall(r"\w+", question, flags=re.UNICODE) if len(t) > 3}
-    matched = [
-        seg
-        for seg in ranked
-        if any(tok in seg[2].lower() for tok in tokens)
-    ] or ranked[:4]
-    if not matched:
+    ranked = _rank_segments(segments, question, limit=8)
+    stems = _question_stems(question)
+    matched = []
+    for seg in ranked:
+        words = re.findall(r"\w+", seg[2].lower(), flags=re.UNICODE)
+        seg_stems = {_stem_token(w) for w in words if len(w) > 2}
+        score = sum(1 for stem in stems if stem in seg_stems or any(stem in s for s in seg_stems))
+        if "ile" in question.lower() and re.search(r"\d", seg[2]):
+            score += 2
+        if score > 0:
+            matched.append((score, seg))
+    matched.sort(key=lambda item: (-item[0], item[1][0]))
+    chosen = [seg for _score, seg in matched[:4]] or ranked[:3]
+    if not chosen:
         return "Nie znaleziono pasujących fragmentów w źródle.", []
-    lines = [f"- [{format_timestamp(start)}] {text}" for start, _end, text in matched[:5]]
+    chosen.sort(key=lambda s: s[0])
+    lines = [f"- [{format_timestamp(start)}] {text}" for start, _end, text in chosen]
     answer = (
-        "Na podstawie źródła (tryb ekstraktywny, brak OPENAI_API_KEY):\n"
-        + "\n".join(lines)
+        "Na podstawie źródła (tryb ekstraktywny, brak OPENAI_API_KEY):\n" + "\n".join(lines)
     )
     citations = [
         Citation(
@@ -114,7 +195,7 @@ def _extractive_answer(
             timestamp=format_timestamp(start),
             text=text,
         )
-        for start, end, text in matched[:5]
+        for start, end, text in chosen
     ]
     return answer, citations
 
@@ -133,7 +214,6 @@ def answer_question(
         return _extractive_answer(question, segments)
 
     selected = _rank_segments(segments, question)
-    # Prefer full transcript for shorter sources
     full_len = sum(len(s[2]) for s in segments)
     if full_len < 12000:
         selected = segments

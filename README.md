@@ -54,7 +54,7 @@ PYTHONPATH=backend python -m app analyze "https://www.youtube.com/watch?v=VIDEO_
 | `OPENAI_API_KEY` | Klucz do LLM (summary + Q&A) |
 | `OPENAI_BASE_URL` | Kompatybilne API OpenAI |
 | `OPENAI_MODEL` | domyślnie `gpt-4o-mini` |
-| `WHISPER_MODEL` | `tiny`/`base`/`small`/`medium`/`large-v3` |
+| `WHISPER_MODEL` | `tiny`/`base`/`small`/`medium`/`large-v3` (dla PL produkcyjnie ≥ `small`) |
 | `WHISPER_DEVICE` | `cpu` lub `cuda` |
 | `WHISPER_LANGUAGE` | domyślnie `pl` |
 

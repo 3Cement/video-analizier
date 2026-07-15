@@ -33,3 +33,14 @@ zdanie kolejne słowa
     assert segs
     assert all("&gt;" not in s.text for s in segs)
     assert all("[muzyka]" not in s.text.lower() for s in segs)
+
+
+def test_normalize_keeps_sentence_boundary_together():
+    raw = [
+        CaptionSegment(0.0, 2.0, "I prawda jest"),
+        CaptionSegment(2.0, 5.0, "taka, że one nie kłamią."),
+        CaptionSegment(5.5, 8.0, "Zaczynamy od treningu."),
+    ]
+    out = normalize_caption_stream(raw)
+    assert any("prawda jest taka" in s.text for s in out)
+    assert any(s.text.startswith("Zaczynamy") for s in out)

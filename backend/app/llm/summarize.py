@@ -54,17 +54,37 @@ def _pick_representative_segments(
 def _extractive_briefing(
     segments: list[tuple[float, float, str]],
     title: str,
+    kind: str = "briefing",
 ) -> str:
     picks = _pick_representative_segments(segments, count=10)
     points = [f"- [{format_timestamp(start)}] {text}" for start, _end, text in picks]
     joined = "\n".join(points) if points else "- (brak segmentów)"
     opener = picks[0][2] if picks else ""
+    note = (
+        "_Podsumowanie ekstraktywne (brak OPENAI_API_KEY). "
+        "Ustaw klucz, aby dostać syntezę NotebookLM-style._"
+    )
+    if kind == "faq":
+        faqs = []
+        for start, _end, text in picks[:6]:
+            faqs.append(
+                f"**P:** O czym mowa w fragmencie [{format_timestamp(start)}]?\n"
+                f"**O:** {text}"
+            )
+        body = "\n\n".join(faqs) if faqs else "(brak treści)"
+        return f"# FAQ: {title or 'Źródło'}\n\n{note}\n\n{body}\n"
+    if kind == "study_guide":
+        return (
+            f"# Study guide: {title or 'Źródło'}\n\n"
+            f"{note}\n\n"
+            "## Motywy / fragmenty do powtórki\n"
+            f"{joined}\n"
+        )
     return (
         f"# Briefing: {title or 'Źródło'}\n\n"
         "## Przegląd\n"
         f"{opener}\n\n"
-        "_Podsumowanie ekstraktywne (brak OPENAI_API_KEY). "
-        "Ustaw klucz, aby dostać syntezę NotebookLM-style._\n\n"
+        f"{note}\n\n"
         "## Kluczowe punkty z materiału\n"
         f"{joined}\n"
     )
@@ -81,7 +101,7 @@ def summarize_segments(
         return "Brak treści źródłowej do podsumowania."
 
     if not settings.openai_api_key:
-        return _extractive_briefing(segments, title)
+        return _extractive_briefing(segments, title, kind=kind)
 
     chunks = chunk_segments(segments, max_chars=2800)
 
