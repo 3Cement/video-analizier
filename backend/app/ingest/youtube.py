@@ -121,16 +121,41 @@ def _load_captions(path: Path) -> list[CaptionSegment]:
 def _base_ydl_opts() -> dict[str, Any]:
     from app.config import get_settings
 
+    settings = get_settings()
     opts: dict[str, Any] = {
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
-        "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
+        # android_vr often works on restricted/datacenter IPs for public videos
+        "extractor_args": {"youtube": {"player_client": ["android_vr", "android", "web"]}},
     }
-    cookies = get_settings().ytdlp_cookies.strip()
+    cookies = settings.ytdlp_cookies.strip()
     if cookies:
         opts["cookiefile"] = cookies
+    proxy = settings.ytdlp_proxy.strip()
+    if proxy:
+        opts["proxy"] = proxy
     return opts
+
+
+def _download_captions_best_effort(url: str, output_dir: Path, language: str) -> None:
+    """Caption download is optional; HTTP 429 / missing tracks must not fail ingest."""
+    outtmpl = str(output_dir / "%(id)s.%(ext)s")
+    ydl_opts: dict[str, Any] = {
+        **_base_ydl_opts(),
+        "outtmpl": outtmpl,
+        "skip_download": True,
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+        "subtitleslangs": [language, f"{language}-PL"],
+        "subtitlesformat": "vtt/best",
+        "ignoreerrors": True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+    except Exception:
+        return
 
 
 def ingest_youtube(
@@ -141,14 +166,13 @@ def ingest_youtube(
     output_dir.mkdir(parents=True, exist_ok=True)
     outtmpl = str(output_dir / "%(id)s.%(ext)s")
 
+    # Audio first — do not couple media download to subtitle fetch failures.
     ydl_opts: dict[str, Any] = {
         **_base_ydl_opts(),
         "format": "bestaudio/best",
         "outtmpl": outtmpl,
-        "writesubtitles": True,
-        "writeautomaticsub": True,
-        "subtitleslangs": [language, f"{language}-PL", "en"],
-        "subtitlesformat": "vtt/json3/best",
+        "writesubtitles": False,
+        "writeautomaticsub": False,
         "skip_download": False,
         "postprocessors": [
             {
@@ -172,6 +196,8 @@ def ingest_youtube(
         matches = sorted(output_dir.glob(f"{video_id}.*"))
         audio_candidates = [p for p in matches if p.suffix.lower() in {".mp3", ".m4a", ".webm", ".opus", ".wav"}]
         audio_path = audio_candidates[0] if audio_candidates else None
+
+    _download_captions_best_effort(url, output_dir, language)
 
     caption_path, caption_lang = _pick_caption_files(output_dir, [language, f"{language}-PL", "en"])
     captions: list[CaptionSegment] = []

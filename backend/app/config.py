@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/app.db"
     media_dir: Path = Path("./data/media")
     ytdlp_cookies: str = ""
+    ytdlp_proxy: str = ""
 
     host: str = "0.0.0.0"
     port: int = 8000

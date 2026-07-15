@@ -27,11 +27,18 @@ PYTHONPATH=backend python -m app analyze-audio examples/pilot_pl_no_captions.mp3
   --save-transcript examples/pilot_transcript.txt
 ```
 
+### Live YouTube test
+
+`youtube_live_test.json` — cloud run for
+`https://www.youtube.com/watch?v=tPsVjYR0tGY`
+(*Treningi W Domu? Brutalna Prawda*, PL, no manual subs; auto-captions used).
+On blocked datacenter IPs set `YTDLP_PROXY`.
+
 ### Real YouTube videos
 
-Export cookies from a logged-in browser (Netscape format), then:
-
 ```bash
+# proxy and/or cookies help on cloud IPs
+export YTDLP_PROXY=http://HOST:PORT
 export YTDLP_COOKIES=/path/to/cookies.txt
 PYTHONPATH=backend python -m app analyze "https://www.youtube.com/watch?v=VIDEO_ID" --summarize
 ```

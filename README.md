@@ -64,13 +64,15 @@ PYTHONPATH=backend python -m app analyze "https://www.youtube.com/watch?v=VIDEO_
 PYTHONPATH=backend pytest -q
 ```
 
-## Pilot (film bez napisów)
+## Pilot (film bez napisów / YouTube w chmurze)
 
-Listę filmów z kanału da się pobrać (`extract_flat`), ale pełne pobranie audio z YouTube
-w niektórych środowiskach wymaga cookies (`YTDLP_COOKIES`) z powodu bot-check.
+Na IP datacenter YouTube często zwraca *Sign in to confirm you're not a bot*.
+Pomaga `YTDLP_PROXY` i/lub `YTDLP_COOKIES`.
 
-W `examples/` jest wynik end-to-end na polskim audio bez napisów (Whisper ASR → briefing → Q&A),
-symulujący scenariusz kanału [Ugot2BeStrong](https://www.youtube.com/@MaciejBielskiUgot2BeStrong/playlists).
+W `examples/`:
+- `pilot_*` — ASR PL bez napisów (audio lokalne)
+- `youtube_live_test.json` — live analiza filmu z kanału
+  (*Treningi W Domu? Brutalna Prawda*)
 
 ## Uwagi prawne
 
