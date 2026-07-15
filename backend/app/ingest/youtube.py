@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional, TypeVar
 
 import yt_dlp
 
 from app.ingest.captions import CaptionSegment, clean_caption_text, normalize_caption_stream
+
+T = TypeVar("T")
 
 
 @dataclass
@@ -104,6 +107,41 @@ def load_local_captions(directory: Path, language: str = "pl") -> tuple[list[Cap
     return _load_captions(caption_path), caption_lang
 
 
+def _retry_ytdlp(
+    fn: Callable[[], T],
+    *,
+    max_retries: int,
+    backoff_seconds: float,
+) -> T:
+    last_exc: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            return fn()
+        except Exception as exc:  # noqa: BLE001 - yt-dlp raises many types
+            last_exc = exc
+            if attempt >= max_retries - 1:
+                break
+            time.sleep(backoff_seconds * (2**attempt))
+    assert last_exc is not None
+    raise last_exc
+
+
+def _download_with_retry(url: str, ydl_opts: dict[str, Any]) -> dict[str, Any]:
+    from app.config import get_settings
+
+    settings = get_settings()
+
+    def _run() -> dict[str, Any]:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            return ydl.extract_info(url, download=True)
+
+    return _retry_ytdlp(
+        _run,
+        max_retries=max(1, settings.ytdlp_max_retries),
+        backoff_seconds=max(0.5, settings.ytdlp_retry_backoff_seconds),
+    )
+
+
 def _base_ydl_opts() -> dict[str, Any]:
     from app.config import get_settings
 
@@ -169,8 +207,7 @@ def ingest_youtube(
         ],
     }
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
+    info = _download_with_retry(url, ydl_opts)
 
     video_id = info.get("id") or "unknown"
     title = info.get("title") or video_id

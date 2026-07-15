@@ -3,10 +3,12 @@ const state = {
   selectedId: null,
   pollTimer: null,
   summaryText: "",
+  videoUrl: "",
 };
 
 const el = {
   statusLine: document.getElementById("status-line"),
+  errorBox: document.getElementById("error-box"),
   steps: document.getElementById("steps"),
   result: document.getElementById("result"),
   resultTitle: document.getElementById("result-title"),
@@ -19,6 +21,9 @@ const el = {
   sourceList: document.getElementById("source-list"),
   submitBtn: document.getElementById("submit-btn"),
   youtubeUrl: document.getElementById("youtube-url"),
+  retryBtn: document.getElementById("retry-btn"),
+  forceAsrBtn: document.getElementById("force-asr-btn"),
+  deleteBtn: document.getElementById("delete-btn"),
 };
 
 function formatTs(seconds) {
@@ -26,6 +31,93 @@ function formatTs(seconds) {
   const m = Math.floor(total / 60);
   const s = total % 60;
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function parseTimestampToSeconds(raw) {
+  const parts = raw.split(":").map((p) => parseInt(p, 10));
+  if (parts.some(Number.isNaN)) return 0;
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return parts[0] || 0;
+}
+
+function youtubeTimestampUrl(baseUrl, seconds) {
+  if (!baseUrl) return null;
+  const sep = baseUrl.includes("?") ? "&" : "?";
+  return `${baseUrl}${sep}t=${Math.max(0, Math.floor(seconds))}s`;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function linkifyTimestamps(html, videoUrl) {
+  if (!videoUrl) return html;
+  return html.replace(
+    /\[(\d{1,2}:\d{2}(?::\d{2})?)\]/g,
+    (_match, ts) => {
+      const seconds = parseTimestampToSeconds(ts);
+      const href = youtubeTimestampUrl(videoUrl, seconds);
+      return `<a class="ts-link" href="${href}" target="_blank" rel="noreferrer">[${ts}]</a>`;
+    }
+  );
+}
+
+function inlineMarkdown(text) {
+  return escapeHtml(text).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+}
+
+function renderMarkdown(text, videoUrl = "") {
+  if (!text) return "<p class='muted'>Brak treści.</p>";
+  const lines = text.split("\n");
+  const out = [];
+  let inList = false;
+
+  const closeList = () => {
+    if (inList) {
+      out.push("</ul>");
+      inList = false;
+    }
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    if (!line.trim()) {
+      closeList();
+      continue;
+    }
+    if (line.startsWith("### ")) {
+      closeList();
+      out.push(`<h3>${linkifyTimestamps(inlineMarkdown(line.slice(4)), videoUrl)}</h3>`);
+      continue;
+    }
+    if (line.startsWith("## ")) {
+      closeList();
+      out.push(`<h2>${linkifyTimestamps(inlineMarkdown(line.slice(3)), videoUrl)}</h2>`);
+      continue;
+    }
+    if (line.startsWith("# ")) {
+      closeList();
+      out.push(`<h1>${linkifyTimestamps(inlineMarkdown(line.slice(2)), videoUrl)}</h1>`);
+      continue;
+    }
+    if (line.startsWith("- ")) {
+      if (!inList) {
+        out.push("<ul>");
+        inList = true;
+      }
+      out.push(`<li>${linkifyTimestamps(inlineMarkdown(line.slice(2)), videoUrl)}</li>`);
+      continue;
+    }
+    closeList();
+    out.push(`<p>${linkifyTimestamps(inlineMarkdown(line), videoUrl)}</p>`);
+  }
+  closeList();
+  return out.join("");
 }
 
 async function api(path, options = {}) {
@@ -46,6 +138,16 @@ async function api(path, options = {}) {
 
 function setStatus(text) {
   el.statusLine.textContent = text;
+}
+
+function setError(detail) {
+  if (!detail) {
+    el.errorBox.hidden = true;
+    el.errorBox.textContent = "";
+    return;
+  }
+  el.errorBox.hidden = false;
+  el.errorBox.textContent = detail;
 }
 
 function setBusy(busy) {
@@ -78,7 +180,7 @@ function renderSources() {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = `source-item${source.id === state.selectedId ? " active" : ""}`;
-    btn.innerHTML = `<strong>${source.title || "Bez tytułu"}</strong>
+    btn.innerHTML = `<strong>${escapeHtml(source.title || "Bez tytułu")}</strong>
       <span class="muted">${source.source_type} · ${source.status}${
         source.segment_count ? ` · ${source.segment_count} seg.` : ""
       }</span>`;
@@ -116,6 +218,28 @@ function schedulePoll() {
   }, 2000);
 }
 
+function renderTranscript(segments, videoUrl) {
+  el.transcriptPre.innerHTML = "";
+  for (const seg of segments || []) {
+    const line = document.createElement("div");
+    line.className = "transcript-line";
+    const href = youtubeTimestampUrl(videoUrl, seg.start);
+    if (href) {
+      const link = document.createElement("a");
+      link.href = href;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      link.className = "ts-link";
+      link.textContent = `[${formatTs(seg.start)}]`;
+      line.appendChild(link);
+      line.appendChild(document.createTextNode(` ${seg.text}`));
+    } else {
+      line.textContent = `[${formatTs(seg.start)}] ${seg.text}`;
+    }
+    el.transcriptPre.appendChild(line);
+  }
+}
+
 async function selectSource(id, resetAnswer = true) {
   state.selectedId = id;
   renderSources();
@@ -126,11 +250,11 @@ async function selectSource(id, resetAnswer = true) {
     detail.transcript_method || "brak metody",
     detail.duration_seconds ? `${Math.round(detail.duration_seconds / 60)} min` : null,
     detail.status,
-    detail.error ? `błąd: ${detail.error}` : null,
   ]
     .filter(Boolean)
     .join(" · ");
 
+  state.videoUrl = detail.url || "";
   if (detail.url) {
     el.resultLink.href = detail.url;
     el.resultLink.hidden = false;
@@ -140,33 +264,79 @@ async function selectSource(id, resetAnswer = true) {
 
   const latestSummary = (detail.summaries || []).at(-1);
   state.summaryText = latestSummary?.content || "";
-  el.summaryBox.textContent =
-    state.summaryText ||
+  el.summaryBox.innerHTML =
+    renderMarkdown(state.summaryText, state.videoUrl) ||
     (detail.status === "ready"
-      ? "Brak podsumowania — spróbuj przetworzyć ponownie."
-      : "Podsumowanie pojawi się po zakończeniu analizy…");
+      ? "<p class='muted'>Brak podsumowania — spróbuj przetworzyć ponownie.</p>"
+      : "<p class='muted'>Podsumowanie pojawi się po zakończeniu analizy…</p>");
 
-  el.transcriptPre.textContent = (detail.segments || [])
-    .map((s) => `[${formatTs(s.start)}] ${s.text}`)
-    .join("\n");
+  renderTranscript(detail.segments || [], state.videoUrl);
 
   if (resetAnswer) {
     el.answerBox.hidden = true;
-    el.answerBox.textContent = "";
+    el.answerBox.innerHTML = "";
     el.askForm.hidden = true;
+  }
+
+  el.retryBtn.hidden = detail.status !== "failed";
+  el.forceAsrBtn.hidden = detail.status !== "ready" || detail.source_type !== "youtube";
+  el.deleteBtn.hidden = false;
+
+  if (detail.status === "failed") {
+    const hint = detail.error_hint ? ` ${detail.error_hint}` : "";
+    setError(`${detail.error_code || "error"}: ${detail.error || "Analiza nie powiodła się."}${hint}`);
+    setStatus("Analiza nie powiodła się.");
+    setBusy(false);
+  } else {
+    setError(null);
   }
 
   updateSteps(detail.status);
   if (detail.status === "ready") {
     setStatus("Podsumowanie gotowe.");
     setBusy(false);
-  } else if (detail.status === "failed") {
-    setStatus(detail.error || "Analiza nie powiodła się.");
-    setBusy(false);
-  } else {
+  } else if (detail.status !== "failed") {
     setStatus(`Przetwarzanie: ${detail.status}`);
     setBusy(true);
     schedulePoll();
+  }
+}
+
+async function reprocessSource({ forceAsr = false } = {}) {
+  if (!state.selectedId) return;
+  try {
+    setBusy(true);
+    setStatus(forceAsr ? "Ponowna transkrypcja ASR…" : "Ponowna analiza…");
+    setError(null);
+    await api(`/sources/${state.selectedId}/reprocess`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prefer_captions: !forceAsr,
+        force_asr: forceAsr,
+        auto_summarize: true,
+      }),
+    });
+    await refreshSources();
+    await selectSource(state.selectedId);
+  } catch (err) {
+    setStatus(err.message);
+    setBusy(false);
+  }
+}
+
+async function deleteSelectedSource() {
+  if (!state.selectedId) return;
+  if (!window.confirm("Usunąć tę analizę?")) return;
+  try {
+    await api(`/sources/${state.selectedId}`, { method: "DELETE" });
+    state.selectedId = null;
+    el.result.hidden = true;
+    setError(null);
+    setStatus("Analiza usunięta.");
+    await refreshSources();
+  } catch (err) {
+    setStatus(err.message);
   }
 }
 
@@ -175,6 +345,7 @@ document.getElementById("youtube-form").addEventListener("submit", async (e) => 
   try {
     setBusy(true);
     setStatus("Startuję analizę YouTube…");
+    setError(null);
     el.steps.hidden = false;
     updateSteps("downloading");
     const created = await api("/sources/youtube", {
@@ -206,6 +377,7 @@ document.getElementById("upload-form").addEventListener("submit", async (e) => {
     body.append("auto_summarize", "true");
     setBusy(true);
     setStatus("Wgrywanie pliku…");
+    setError(null);
     const created = await api("/sources/upload", { method: "POST", body });
     state.selectedId = created.id;
     await refreshSources();
@@ -220,6 +392,7 @@ document.getElementById("text-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   try {
     setBusy(true);
+    setError(null);
     const created = await api("/sources/text", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -278,12 +451,16 @@ document.getElementById("ask-form").addEventListener("submit", async (e) => {
       .map((c) => `[${c.timestamp}] ${c.text}`)
       .join("\n");
     el.answerBox.hidden = false;
-    el.answerBox.textContent = `${data.answer}\n\nCytowania:\n${cites || "(brak)"}`;
+    el.answerBox.innerHTML = `${renderMarkdown(data.answer, state.videoUrl)}<p><strong>Cytowania:</strong></p><pre class="cites">${escapeHtml(cites || "(brak)")}</pre>`;
     setStatus("Odpowiedź gotowa.");
   } catch (err) {
     setStatus(err.message);
   }
 });
+
+el.retryBtn.addEventListener("click", () => reprocessSource({ forceAsr: false }));
+el.forceAsrBtn.addEventListener("click", () => reprocessSource({ forceAsr: true }));
+el.deleteBtn.addEventListener("click", () => deleteSelectedSource());
 
 document.getElementById("refresh-btn").addEventListener("click", () => {
   refreshSources().catch((e) => setStatus(e.message));

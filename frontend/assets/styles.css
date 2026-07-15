@@ -201,9 +201,74 @@ button[type="submit"]:disabled {
 
 .summary,
 .answer {
-  white-space: pre-wrap;
   line-height: 1.6;
   font-size: 1.02rem;
+}
+
+.summary h1,
+.summary h2,
+.summary h3,
+.answer h1,
+.answer h2,
+.answer h3 {
+  font-family: var(--font-display);
+  margin: 1rem 0 0.5rem;
+}
+
+.summary ul,
+.answer ul {
+  margin: 0.5rem 0 0.75rem 1.1rem;
+}
+
+.error-box {
+  margin: 0.75rem 0 0;
+  padding: 0.75rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 120, 120, 0.45);
+  background: rgba(120, 20, 20, 0.25);
+  color: #ffd6d6;
+  font-size: 0.95rem;
+}
+
+button.danger {
+  border-color: rgba(255, 120, 120, 0.45);
+  color: #ffd6d6;
+}
+
+.ts-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.ts-link:hover {
+  text-decoration: underline;
+}
+
+.transcript-lines {
+  margin: 0.75rem 0 0;
+  color: var(--muted);
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.transcript-line {
+  margin-bottom: 0.35rem;
+}
+
+.cites {
+  white-space: pre-wrap;
+  color: var(--muted);
+  font-family: var(--font-body);
+  margin: 0.35rem 0 0;
+}
+
+.row-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
 }
 
 .result-actions {
@@ -248,13 +313,6 @@ button[type="submit"]:disabled {
   font-size: 0.95rem;
   max-height: 320px;
   overflow: auto;
-}
-
-.row-between {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
 }
 
 .history h2,

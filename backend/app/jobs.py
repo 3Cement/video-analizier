@@ -8,6 +8,12 @@ from app.db import get_session
 
 
 def run_in_background(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> None:
+    from app.config import get_settings
+
+    settings = get_settings()
+    if settings.worker_mode:
+        return
+
     def _target() -> None:
         db = get_session()
         try:

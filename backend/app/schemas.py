@@ -45,17 +45,31 @@ class SummaryOut(BaseModel):
 
 class SourceOut(BaseModel):
     id: int
+    user_id: str = "anonymous"
     source_type: str
     title: str
     url: Optional[str] = None
+    video_id: Optional[str] = None
     language: str
     status: str
     error: Optional[str] = None
+    error_code: Optional[str] = None
+    error_hint: Optional[str] = None
     duration_seconds: Optional[float] = None
     transcript_method: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     segment_count: int = 0
+
+    model_config = {"from_attributes": True}
+
+
+class AskOut(BaseModel):
+    id: int
+    source_id: int
+    question: str
+    answer: str
+    created_at: datetime
 
     model_config = {"from_attributes": True}
 
@@ -97,4 +111,6 @@ class JobStatusOut(BaseModel):
     source_id: int
     status: str
     error: Optional[str] = None
+    error_code: Optional[str] = None
+    error_hint: Optional[str] = None
     progress: str = ""

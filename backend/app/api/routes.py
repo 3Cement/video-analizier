@@ -9,12 +9,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app import __version__
+from app.auth import get_optional_user_id, verify_api_key
+from app.cache import clone_source_from_cache, extract_youtube_video_id, find_cached_source
 from app.config import get_settings
 from app.db import get_db
 from app.jobs import run_in_background
+from app.limits import enforce_daily_source_limit
 from app.llm.qa import answer_question
 from app.llm.summarize import summarize_segments
-from app.models import Source, Summary
+from app.models import Ask, Source, Summary
 from app.pipeline import (
     process_text_source,
     process_upload_source,
@@ -22,6 +25,7 @@ from app.pipeline import (
     reprocess_source_from_media,
 )
 from app.schemas import (
+    AskOut,
     AskRequest,
     AskResponse,
     HealthResponse,
@@ -36,17 +40,22 @@ from app.schemas import (
 )
 
 router = APIRouter()
+protected = APIRouter(dependencies=[Depends(verify_api_key)])
 
 
 def _to_source_out(source: Source) -> SourceOut:
     return SourceOut(
         id=source.id,
+        user_id=source.user_id,
         source_type=source.source_type,
         title=source.title,
         url=source.url,
+        video_id=source.video_id,
         language=source.language,
         status=source.status,
         error=source.error,
+        error_code=source.error_code,
+        error_hint=source.error_hint,
         duration_seconds=source.duration_seconds,
         transcript_method=source.transcript_method,
         created_at=source.created_at,
@@ -55,18 +64,26 @@ def _to_source_out(source: Source) -> SourceOut:
     )
 
 
-@router.get("/health", response_model=HealthResponse)
+@protected.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(status="ok", version=__version__)
 
 
-@router.get("/sources", response_model=list[SourceOut])
-def list_sources(db: Session = Depends(get_db)) -> list[SourceOut]:
-    sources = db.scalars(select(Source).options(selectinload(Source.segments)).order_by(Source.id.desc())).all()
+@protected.get("/sources", response_model=list[SourceOut])
+def list_sources(
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_optional_user_id),
+) -> list[SourceOut]:
+    sources = db.scalars(
+        select(Source)
+        .where(Source.user_id == user_id)
+        .options(selectinload(Source.segments))
+        .order_by(Source.id.desc())
+    ).all()
     return [_to_source_out(s) for s in sources]
 
 
-@router.get("/sources/{source_id}", response_model=SourceDetailOut)
+@protected.get("/sources/{source_id}", response_model=SourceDetailOut)
 def get_source(source_id: int, db: Session = Depends(get_db)) -> SourceDetailOut:
     source = db.scalar(
         select(Source)
@@ -83,7 +100,7 @@ def get_source(source_id: int, db: Session = Depends(get_db)) -> SourceDetailOut
     )
 
 
-@router.get("/sources/{source_id}/status", response_model=JobStatusOut)
+@protected.get("/sources/{source_id}/status", response_model=JobStatusOut)
 def get_status(source_id: int, db: Session = Depends(get_db)) -> JobStatusOut:
     source = db.get(Source, source_id)
     if source is None:
@@ -100,37 +117,72 @@ def get_status(source_id: int, db: Session = Depends(get_db)) -> JobStatusOut:
         source_id=source.id,
         status=source.status,
         error=source.error,
+        error_code=source.error_code,
+        error_hint=source.error_hint,
         progress=progress_map.get(source.status, source.status),
     )
 
 
-@router.post("/sources/youtube", response_model=SourceOut)
+@protected.get("/sources/{source_id}/asks", response_model=list[AskOut])
+def list_asks(source_id: int, db: Session = Depends(get_db)) -> list[AskOut]:
+    source = db.get(Source, source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    asks = db.scalars(
+        select(Ask).where(Ask.source_id == source_id).order_by(Ask.created_at.desc())
+    ).all()
+    return list(asks)
+
+
+@protected.post("/sources/youtube", response_model=SourceOut)
 def create_youtube_source(
     payload: YouTubeCreateRequest,
     db: Session = Depends(get_db),
+    user_id: str = Depends(get_optional_user_id),
 ) -> SourceOut:
+    settings = get_settings()
+    enforce_daily_source_limit(db, user_id, settings)
+
+    video_id = extract_youtube_video_id(payload.url)
+    cached = find_cached_source(db, video_id, user_id) if video_id else None
+
     source = Source(
+        user_id=user_id,
         source_type="youtube",
         title="YouTube video",
         url=payload.url,
+        video_id=video_id,
         language=payload.language,
         status="pending",
     )
     db.add(source)
     db.commit()
     db.refresh(source)
+
+    if cached is not None:
+        clone_source_from_cache(db, source, cached)
+        db.commit()
+        source = db.scalar(
+            select(Source).where(Source.id == source.id).options(selectinload(Source.segments))
+        )
+        assert source is not None
+        return _to_source_out(source)
+
     run_in_background(process_youtube_source, source.id, auto_summarize=payload.auto_summarize)
     source = db.scalar(select(Source).where(Source.id == source.id).options(selectinload(Source.segments)))
     assert source is not None
     return _to_source_out(source)
 
 
-@router.post("/sources/text", response_model=SourceOut)
+@protected.post("/sources/text", response_model=SourceOut)
 def create_text_source(
     payload: TextCreateRequest,
     db: Session = Depends(get_db),
+    user_id: str = Depends(get_optional_user_id),
 ) -> SourceOut:
+    enforce_daily_source_limit(db, user_id, get_settings())
     source = Source(
+        user_id=user_id,
         source_type="text",
         title=payload.title,
         language=payload.language,
@@ -151,15 +203,17 @@ def create_text_source(
     return _to_source_out(source)
 
 
-@router.post("/sources/upload", response_model=SourceOut)
+@protected.post("/sources/upload", response_model=SourceOut)
 async def upload_source(
     file: UploadFile = File(...),
     language: str = Form("pl"),
     title: Optional[str] = Form(None),
     auto_summarize: bool = Form(True),
     db: Session = Depends(get_db),
+    user_id: str = Depends(get_optional_user_id),
 ) -> SourceOut:
     settings = get_settings()
+    enforce_daily_source_limit(db, user_id, settings)
     original_name = file.filename or "upload.bin"
     suffix = Path(original_name).suffix.lower()
     if suffix not in {".pdf", ".txt", ".md", ".mp3", ".wav", ".m4a", ".webm", ".ogg", ".mp4", ".mkv"}:
@@ -167,6 +221,7 @@ async def upload_source(
 
     source_type = "pdf" if suffix == ".pdf" else "audio" if suffix in {".mp3", ".wav", ".m4a", ".webm", ".ogg", ".mp4", ".mkv"} else "text"
     source = Source(
+        user_id=user_id,
         source_type=source_type,
         title=title or original_name,
         language=language,
@@ -190,7 +245,7 @@ async def upload_source(
     return _to_source_out(source)
 
 
-@router.post("/sources/{source_id}/reprocess", response_model=SourceOut)
+@protected.post("/sources/{source_id}/reprocess", response_model=SourceOut)
 def reprocess_source(
     source_id: int,
     payload: ReprocessRequest,
@@ -201,6 +256,8 @@ def reprocess_source(
         raise HTTPException(status_code=404, detail="Source not found")
     source.status = "pending"
     source.error = None
+    source.error_code = None
+    source.error_hint = None
     db.commit()
     run_in_background(
         reprocess_source_from_media,
@@ -214,7 +271,7 @@ def reprocess_source(
     return _to_source_out(source)
 
 
-@router.post("/sources/{source_id}/summarize", response_model=SummaryOut)
+@protected.post("/sources/{source_id}/summarize", response_model=SummaryOut)
 def summarize_source(
     source_id: int,
     payload: SummarizeRequest,
@@ -237,7 +294,7 @@ def summarize_source(
     return summary
 
 
-@router.post("/ask", response_model=AskResponse)
+@protected.post("/ask", response_model=AskResponse)
 def ask(payload: AskRequest, db: Session = Depends(get_db)) -> AskResponse:
     if payload.source_id is None:
         raise HTTPException(status_code=400, detail="source_id is required")
@@ -251,10 +308,12 @@ def ask(payload: AskRequest, db: Session = Depends(get_db)) -> AskResponse:
 
     segs = [(s.start, s.end, s.text) for s in source.segments]
     answer, citations = answer_question(payload.question, segs, title=source.title)
+    db.add(Ask(source_id=source.id, question=payload.question, answer=answer))
+    db.commit()
     return AskResponse(answer=answer, citations=citations, source_id=source.id)
 
 
-@router.delete("/sources/{source_id}")
+@protected.delete("/sources/{source_id}")
 def delete_source(source_id: int, db: Session = Depends(get_db)) -> dict[str, str]:
     source = db.get(Source, source_id)
     if source is None:
@@ -266,3 +325,6 @@ def delete_source(source_id: int, db: Session = Depends(get_db)) -> dict[str, st
     if media_dir.exists():
         shutil.rmtree(media_dir, ignore_errors=True)
     return {"status": "deleted"}
+
+
+router.include_router(protected)

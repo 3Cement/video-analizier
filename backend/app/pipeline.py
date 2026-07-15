@@ -5,14 +5,35 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from app.asr.postprocess import normalize_asr_segments
 from app.asr.whisper import transcribe_audio
 from app.config import get_settings
+from app.errors import classify_job_error
 from app.ingest.pdf import extract_pdf_text
 from app.ingest.text import load_text_file, text_to_segments
 from app.ingest.youtube import ingest_youtube, load_local_captions
 from app.llm.summarize import summarize_segments
+from app.limits import check_duration_limit
 from app.media import probe_duration_seconds
 from app.models import Segment, Source, Summary
+
+
+def _fail_source(db: Session, source_id: int, exc: BaseException) -> None:
+    db.rollback()
+    source = db.get(Source, source_id)
+    if source is None:
+        return
+    job_error = classify_job_error(exc)
+    source.status = "failed"
+    source.error = job_error.message
+    source.error_code = job_error.code
+    source.error_hint = job_error.hint
+    db.commit()
+
+
+def _transcribe_rows(audio_path: Path, language: str, settings) -> list[tuple[float, float, str]]:
+    asr = normalize_asr_segments(transcribe_audio(audio_path, language=language, settings=settings))
+    return [(s.start, s.end, s.text) for s in asr]
 
 
 def _replace_segments(db: Session, source: Source, rows: list[tuple[float, float, str]]) -> None:
@@ -56,7 +77,9 @@ def process_youtube_source(db: Session, source_id: int, auto_summarize: bool = T
 
         result = ingest_youtube(source.url or "", work_dir, language=source.language)
         source.title = result.title or source.title
+        source.video_id = result.video_id
         source.duration_seconds = result.duration_seconds
+        check_duration_limit(result.duration_seconds, settings)
         if result.audio_path:
             source.file_path = str(result.audio_path)
 
@@ -71,8 +94,7 @@ def process_youtube_source(db: Session, source_id: int, auto_summarize: bool = T
             source.status = "transcribing"
             source.transcript_method = "whisper"
             db.commit()
-            asr = transcribe_audio(Path(result.audio_path), language=source.language, settings=settings)
-            rows = [(s.start, s.end, s.text) for s in asr]
+            rows = _transcribe_rows(Path(result.audio_path), source.language, settings)
 
         _replace_segments(db, source, rows)
         db.flush()
@@ -89,14 +111,11 @@ def process_youtube_source(db: Session, source_id: int, auto_summarize: bool = T
         assert source is not None
         source.status = "ready"
         source.error = None
+        source.error_code = None
+        source.error_hint = None
         db.commit()
     except Exception as exc:  # noqa: BLE001 - persist job failure for API clients
-        db.rollback()
-        source = db.get(Source, source_id)
-        if source is not None:
-            source.status = "failed"
-            source.error = str(exc)
-            db.commit()
+        _fail_source(db, source_id, exc)
         raise
 
 
@@ -125,15 +144,12 @@ def process_text_source(
         assert source is not None
         source.status = "ready"
         source.error = None
+        source.error_code = None
+        source.error_hint = None
         source.transcript_method = "text"
         db.commit()
     except Exception as exc:  # noqa: BLE001
-        db.rollback()
-        source = db.get(Source, source_id)
-        if source is not None:
-            source.status = "failed"
-            source.error = str(exc)
-            db.commit()
+        _fail_source(db, source_id, exc)
         raise
 
 
@@ -165,8 +181,7 @@ def process_upload_source(db: Session, source_id: int, auto_summarize: bool = Tr
             source.transcript_method = "whisper"
             db.commit()
             source.duration_seconds = probe_duration_seconds(path)
-            asr = transcribe_audio(path, language=source.language, settings=settings)
-            rows = [(s.start, s.end, s.text) for s in asr]
+            rows = _transcribe_rows(path, source.language, settings)
             if source.duration_seconds is None and rows:
                 source.duration_seconds = float(rows[-1][1])
         else:
@@ -187,14 +202,11 @@ def process_upload_source(db: Session, source_id: int, auto_summarize: bool = Tr
         assert source is not None
         source.status = "ready"
         source.error = None
+        source.error_code = None
+        source.error_hint = None
         db.commit()
     except Exception as exc:  # noqa: BLE001
-        db.rollback()
-        source = db.get(Source, source_id)
-        if source is not None:
-            source.status = "failed"
-            source.error = str(exc)
-            db.commit()
+        _fail_source(db, source_id, exc)
         raise
 
 
@@ -217,6 +229,8 @@ def reprocess_source_from_media(
 
         source.status = "transcribing"
         source.error = None
+        source.error_code = None
+        source.error_hint = None
         db.commit()
 
         rows: list[tuple[float, float, str]] = []
@@ -234,8 +248,7 @@ def reprocess_source_from_media(
             )
             if not audio_candidates:
                 raise RuntimeError("No captions and no audio available for reprocess")
-            asr = transcribe_audio(audio_candidates[0], language=source.language, settings=settings)
-            rows = [(s.start, s.end, s.text) for s in asr]
+            rows = _transcribe_rows(audio_candidates[0], source.language, settings)
             source.transcript_method = "whisper"
 
         source.summaries.clear()
@@ -251,12 +264,9 @@ def reprocess_source_from_media(
         assert source is not None
         source.status = "ready"
         source.error = None
+        source.error_code = None
+        source.error_hint = None
         db.commit()
     except Exception as exc:  # noqa: BLE001
-        db.rollback()
-        source = db.get(Source, source_id)
-        if source is not None:
-            source.status = "failed"
-            source.error = str(exc)
-            db.commit()
+        _fail_source(db, source_id, exc)
         raise

@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     media_dir: Path = Path("./data/media")
     ytdlp_cookies: str = ""
     ytdlp_proxy: str = ""
+    ytdlp_max_retries: int = 3
+    ytdlp_retry_backoff_seconds: float = 2.0
+
+    api_key: str = ""
+    max_video_duration_seconds: int = 7200
+    daily_source_limit: int = 50
+    worker_mode: bool = False
+    worker_poll_seconds: float = 3.0
 
     host: str = "0.0.0.0"
     port: int = 8000

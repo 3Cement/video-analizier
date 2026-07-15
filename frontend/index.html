@@ -37,6 +37,7 @@
         <p id="status-line" class="status" aria-live="polite">
           Gotowe do analizy.
         </p>
+        <p id="error-box" class="error-box" hidden></p>
         <ol id="steps" class="steps" hidden>
           <li data-step="downloading">Pobieranie audio</li>
           <li data-step="transcribing">Transkrypcja / napisy</li>
@@ -60,6 +61,9 @@
         <article id="summary-box" class="summary"></article>
 
         <div class="result-actions">
+          <button id="retry-btn" class="ghost danger" type="button" hidden>Ponów analizę</button>
+          <button id="force-asr-btn" class="ghost" type="button" hidden>Force ASR (Whisper)</button>
+          <button id="delete-btn" class="ghost danger" type="button" hidden>Usuń</button>
           <button id="ask-toggle" class="ghost" type="button">Zadaj pytanie do filmu</button>
           <button id="transcript-toggle" class="ghost" type="button">Pokaż transkrypt</button>
           <button id="copy-summary" class="ghost" type="button">Kopiuj podsumowanie</button>
@@ -81,7 +85,7 @@
 
         <details id="transcript-box" class="transcript">
           <summary>Transkrypt z timestampami</summary>
-          <pre id="transcript-pre"></pre>
+          <pre id="transcript-pre" class="transcript-lines"></pre>
         </details>
       </section>
 

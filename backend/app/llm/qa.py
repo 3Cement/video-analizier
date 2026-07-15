@@ -101,31 +101,15 @@ def _ts_to_seconds(match: re.Match[str]) -> float:
     return hours * 3600 + minutes * 60 + seconds
 
 
+from app.llm.retrieval import retrieve_segments
+
+
 def _rank_segments(
     segments: list[tuple[float, float, str]],
     question: str,
     limit: int = 24,
 ) -> list[tuple[float, float, str]]:
-    stems = _question_stems(question)
-    if not stems:
-        return segments[:limit]
-
-    scored: list[tuple[int, tuple[float, float, str]]] = []
-    for seg in segments:
-        words = re.findall(r"\w+", seg[2].lower(), flags=re.UNICODE)
-        seg_stems = {_stem_token(w) for w in words if len(w) > 2}
-        score = sum(1 for stem in stems if stem in seg_stems or any(stem in s for s in seg_stems))
-        # Boost numeric answers for "ile" questions
-        if "ile" in question.lower() and re.search(r"\d", seg[2]):
-            score += 2
-        scored.append((score, seg))
-    scored.sort(key=lambda item: (-item[0], item[1][0]))
-    top = [seg for score, seg in scored if score > 0][:limit]
-    if not top:
-        return segments[: min(limit, len(segments))]
-    # Keep chronological order for readability after ranking.
-    top.sort(key=lambda s: s[0])
-    return top
+    return retrieve_segments(segments, question, limit=limit)
 
 
 def _extract_citations(

@@ -13,13 +13,17 @@ class Source(Base):
     __tablename__ = "sources"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(128), default="anonymous", index=True)
     source_type: Mapped[str] = mapped_column(String(32), index=True)
     title: Mapped[str] = mapped_column(String(512), default="")
     url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    video_id: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, index=True)
     file_path: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     language: Mapped[str] = mapped_column(String(16), default="pl")
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    error_hint: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     transcript_method: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -39,6 +43,12 @@ class Source(Base):
         "Summary",
         back_populates="source",
         cascade="all, delete-orphan",
+    )
+    asks: Mapped[list["Ask"]] = relationship(
+        "Ask",
+        back_populates="source",
+        cascade="all, delete-orphan",
+        order_by="Ask.created_at",
     )
 
 
@@ -65,3 +75,15 @@ class Summary(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     source: Mapped[Source] = relationship("Source", back_populates="summaries")
+
+
+class Ask(Base):
+    __tablename__ = "asks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey("sources.id", ondelete="CASCADE"), index=True)
+    question: Mapped[str] = mapped_column(Text, default="")
+    answer: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    source: Mapped[Source] = relationship("Source", back_populates="asks")
