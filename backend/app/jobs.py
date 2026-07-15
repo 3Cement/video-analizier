@@ -1,10 +1,25 @@
 from __future__ import annotations
 
-import threading
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from app.db import get_session
+
+_executor: ThreadPoolExecutor | None = None
+
+
+def _get_executor() -> ThreadPoolExecutor:
+    global _executor
+    if _executor is None:
+        from app.config import get_settings
+
+        settings = get_settings()
+        _executor = ThreadPoolExecutor(
+            max_workers=max(1, settings.job_max_workers),
+            thread_name_prefix="va-job",
+        )
+    return _executor
 
 
 def run_in_background(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> None:
@@ -21,5 +36,4 @@ def run_in_background(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> None
         finally:
             db.close()
 
-    thread = threading.Thread(target=_target, daemon=True)
-    thread.start()
+    _get_executor().submit(_target)

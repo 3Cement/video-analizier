@@ -30,6 +30,10 @@ const el = {
   llmForm: document.getElementById("llm-form"),
   llmProvider: document.getElementById("llm-provider"),
   llmStatusLine: document.getElementById("llm-status-line"),
+  shareBtn: document.getElementById("share-btn"),
+  exportMdBtn: document.getElementById("export-md-btn"),
+  shareUrlLine: document.getElementById("share-url-line"),
+  quotaLine: document.getElementById("quota-line"),
 };
 
 function formatTs(seconds) {
@@ -309,7 +313,16 @@ async function selectSource(id, resetAnswer = true) {
 
   el.retryBtn.hidden = detail.status !== "failed";
   el.forceAsrBtn.hidden = detail.status !== "ready" || detail.source_type !== "youtube";
+  el.shareBtn.hidden = detail.status !== "ready";
+  el.exportMdBtn.hidden = detail.status !== "ready";
   el.deleteBtn.hidden = false;
+  if (detail.share_slug) {
+    el.shareUrlLine.hidden = false;
+    el.shareUrlLine.innerHTML = `Publiczny link: <a class="ts-link" href="/s/${detail.share_slug}" target="_blank" rel="noreferrer">/s/${detail.share_slug}</a>`;
+  } else {
+    el.shareUrlLine.hidden = true;
+    el.shareUrlLine.textContent = "";
+  }
 
   if (detail.status === "failed") {
     const hint = detail.error_hint ? ` ${detail.error_hint}` : "";
@@ -563,8 +576,76 @@ el.llmForm.addEventListener("submit", async (e) => {
   }
 });
 
+
+async function loadQuota() {
+  try {
+    const q = await api("/quota");
+    if (!q.limit || q.limit <= 0) {
+      el.quotaLine.textContent = `Dziś: ${q.used} analiz (bez limitu).`;
+    } else {
+      el.quotaLine.textContent = `Limit dzienny: ${q.used}/${q.limit} (pozostało ${q.remaining}).`;
+    }
+  } catch (_) {
+    el.quotaLine.textContent = "";
+  }
+}
+
+el.shareBtn.addEventListener("click", async () => {
+  if (!state.selectedId) return;
+  try {
+    const data = await api(`/sources/${state.selectedId}/share`, { method: "POST" });
+    el.shareUrlLine.hidden = false;
+    el.shareUrlLine.innerHTML = `Publiczny link: <a class="ts-link" href="${data.share_url}" target="_blank" rel="noreferrer">${data.share_url}</a>`;
+    setStatus("Link udostępniania gotowy.");
+    await refreshSources();
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
+
+el.exportMdBtn.addEventListener("click", async () => {
+  if (!state.selectedId) return;
+  try {
+    const res = await fetch(`/api/sources/${state.selectedId}/export.md`);
+    if (!res.ok) throw new Error("Nie udało się wyeksportować");
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `source-${state.selectedId}.md`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    setStatus("Eksport Markdown pobrany.");
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
+
+document.getElementById("playlist-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const raw = document.getElementById("playlist-urls").value;
+  const urls = raw.split(/\n+/).map((u) => u.trim()).filter(Boolean);
+  if (!urls.length) return;
+  try {
+    setBusy(true);
+    setStatus(`Dodaję playlistę (${urls.length})…`);
+    const created = await api("/sources/playlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ urls, language: "pl", auto_summarize: true }),
+    });
+    state.selectedId = created[0]?.id || state.selectedId;
+    await loadQuota();
+    await refreshSources();
+    if (state.selectedId) await selectSource(state.selectedId);
+  } catch (err) {
+    setStatus(err.message);
+    setBusy(false);
+  }
+});
+
 refreshSources()
   .then(() => loadLlmStatus())
+  .then(() => loadQuota())
   .then(() => {
     const ready = state.sources.find((s) => s.status === "ready");
     if (ready) return selectSource(ready.id);

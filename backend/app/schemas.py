@@ -60,6 +60,8 @@ class SourceOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     segment_count: int = 0
+    share_slug: Optional[str] = None
+    is_public: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -127,3 +129,22 @@ class LlmSettingsUpdate(BaseModel):
     cursor_api_key: Optional[str] = None
     cursor_base_url: Optional[str] = None
     cursor_model: Optional[str] = None
+
+
+class PlaylistCreateRequest(BaseModel):
+    urls: list[str] = Field(..., min_length=1)
+    language: str = "pl"
+    auto_summarize: bool = True
+
+
+class ShareOut(BaseModel):
+    source_id: int
+    share_slug: str
+    share_url: str
+    is_public: bool = True
+
+
+class QuotaOut(BaseModel):
+    used: int
+    limit: int
+    remaining: int

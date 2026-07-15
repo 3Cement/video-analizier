@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import shutil
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import PlainTextResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -18,6 +20,7 @@ from app.limits import enforce_daily_source_limit
 from app.llm.qa import answer_question
 from app.llm.summarize import summarize_segments
 from app.llm_settings_store import llm_status, save_llm_overrides
+from app.share import make_share_slug
 from app.models import Ask, Segment, Source, Summary
 from app.pipeline import (
     process_text_source,
@@ -32,6 +35,9 @@ from app.schemas import (
     HealthResponse,
     JobStatusOut,
     LlmSettingsUpdate,
+    PlaylistCreateRequest,
+    QuotaOut,
+    ShareOut,
     ReprocessRequest,
     SourceDetailOut,
     SourceOut,
@@ -68,6 +74,8 @@ def _to_source_out(source: Source, segment_count: int | None = None) -> SourceOu
         created_at=source.created_at,
         updated_at=source.updated_at,
         segment_count=segment_count,
+        share_slug=source.share_slug,
+        is_public=bool(source.is_public),
     )
 
 
@@ -380,6 +388,117 @@ def delete_source(
     if media_dir.exists():
         shutil.rmtree(media_dir, ignore_errors=True)
     return {"status": "deleted"}
+
+
+
+
+@protected.get("/quota", response_model=QuotaOut)
+def get_quota(
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_optional_user_id),
+) -> QuotaOut:
+    settings = get_settings()
+    limit = settings.daily_source_limit
+    since = datetime.now(timezone.utc) - timedelta(days=1)
+    used = db.scalar(
+        select(func.count()).select_from(Source).where(Source.user_id == user_id, Source.created_at >= since)
+    ) or 0
+    remaining = max(0, limit - used) if limit > 0 else 10**9
+    return QuotaOut(used=int(used), limit=int(limit), remaining=int(remaining))
+
+
+@protected.post("/sources/playlist", response_model=list[SourceOut])
+def create_playlist(
+    payload: PlaylistCreateRequest,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_optional_user_id),
+) -> list[SourceOut]:
+    settings = get_settings()
+    urls = [u.strip() for u in payload.urls if u and u.strip()]
+    if not urls:
+        raise HTTPException(status_code=400, detail="No URLs provided")
+    if len(urls) > 20:
+        raise HTTPException(status_code=400, detail="Playlist limited to 20 URLs")
+
+    created: list[SourceOut] = []
+    for url in urls:
+        enforce_daily_source_limit(db, user_id, settings)
+        video_id = extract_youtube_video_id(url)
+        cached = find_cached_source(db, video_id, user_id) if video_id else None
+        source = Source(
+            user_id=user_id,
+            source_type="youtube",
+            title="YouTube video",
+            url=url,
+            video_id=video_id,
+            language=payload.language,
+            status="pending",
+        )
+        db.add(source)
+        db.commit()
+        db.refresh(source)
+        if cached is not None:
+            clone_source_from_cache(db, source, cached)
+            db.commit()
+            source = _get_owned_source(db, source.id, user_id, load_segments=True)
+            created.append(_to_source_out(source))
+            continue
+        run_in_background(process_youtube_source, source.id, auto_summarize=payload.auto_summarize)
+        created.append(_to_source_out(source, segment_count=0))
+    return created
+
+
+@protected.post("/sources/{source_id}/share", response_model=ShareOut)
+def share_source(
+    source_id: int,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_optional_user_id),
+) -> ShareOut:
+    source = _get_owned_source(db, source_id, user_id, load_summaries=True)
+    if source.status != "ready":
+        raise HTTPException(status_code=409, detail="Source not ready")
+    if not source.summaries:
+        raise HTTPException(status_code=409, detail="No summary to share")
+    if not source.share_slug:
+        source.share_slug = make_share_slug()
+    source.is_public = True
+    db.commit()
+    settings = get_settings()
+    base = (settings.public_base_url or "").rstrip("/")
+    share_url = f"{base}/s/{source.share_slug}" if base else f"/s/{source.share_slug}"
+    return ShareOut(
+        source_id=source.id,
+        share_slug=source.share_slug,
+        share_url=share_url,
+        is_public=True,
+    )
+
+
+@protected.get("/sources/{source_id}/export.md")
+def export_markdown(
+    source_id: int,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_optional_user_id),
+):
+    source = _get_owned_source(db, source_id, user_id, load_segments=True, load_summaries=True)
+    latest = source.summaries[-1].content if source.summaries else ""
+    lines = [
+        f"# {source.title or 'Podsumowanie'}",
+        "",
+        f"- Status: {source.status}",
+        f"- Method: {source.transcript_method or '-'}",
+        f"- URL: {source.url or '-'}",
+        "",
+        latest or "_Brak podsumowania_",
+        "",
+        "## Transkrypt",
+        "",
+    ]
+    for seg in source.segments:
+        mm = int(seg.start // 60)
+        ss = int(seg.start % 60)
+        lines.append(f"- [{mm:02d}:{ss:02d}] {seg.text}")
+    return PlainTextResponse("\n".join(lines), media_type="text/markdown; charset=utf-8")
 
 
 router.include_router(protected)

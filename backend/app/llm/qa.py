@@ -198,9 +198,10 @@ def answer_question(
     if not has_llm_credentials(settings):
         return _extractive_answer(question, segments)
 
-    selected = _rank_segments(segments, question)
+    selected = _rank_segments(segments, question, limit=18)
     full_len = sum(len(s[2]) for s in segments)
-    if full_len < 12000:
+    # Keep full transcript only for short sources; otherwise retrieval-first.
+    if full_len < 4000:
         selected = segments
 
     transcript = segments_to_transcript(selected, with_timestamps=True)

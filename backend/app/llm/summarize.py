@@ -161,6 +161,12 @@ def summarize_segments(
         return _extractive_briefing(segments, title, kind=kind)
 
     chunks = chunk_segments(segments, max_chars=2800)
+    max_chunks = max(1, settings.max_summary_chunks)
+    if len(chunks) > max_chunks:
+        # Keep evenly spaced chunks to bound latency/cost.
+        step = (len(chunks) - 1) / (max_chunks - 1) if max_chunks > 1 else 0
+        idxs = sorted({round(i * step) for i in range(max_chunks)})
+        chunks = [chunks[i] for i in idxs]
 
     if len(chunks) == 1:
         source_block = chunks[0].text
@@ -176,10 +182,13 @@ def summarize_segments(
     kind_instruction = {
         "briefing": (
             "Create a briefing document in Polish with:\n"
-            "1) Short overview (3-5 sentences)\n"
-            "2) Section 'Najważniejsze wnioski' with timestamp citations\n"
-            "3) Practical takeaways / steps / numbers if present\n"
-            "4) Open questions or gaps in the source"
+            "1) Section 'W skrócie' — 3-5 sentences overview\n"
+            "2) Section 'Najważniejsze wnioski' — bullet list with timestamp citations [mm:ss]\n"
+            "3) Section 'Liczby i fakty' — concrete numbers, dosages, durations if present\n"
+            "4) Section 'Co zrobić dalej' — practical steps/call-to-action grounded in source\n"
+            "5) Section 'Cytaty' — 2-4 short quotes with timestamps\n"
+            "6) Open questions or gaps in the source\n"
+            "Do not invent facts. Prefer citations over paraphrase when uncertain."
         ),
         "faq": "Create an FAQ with 5-8 questions and answers grounded in the source, with timestamps.",
         "study_guide": "Create a study guide: main themes, definitions, and review questions with timestamps.",

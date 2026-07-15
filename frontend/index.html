@@ -3,27 +3,72 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>video-analizier — podsumowania YouTube</title>
+    <title>video-analizier — podsumowanie YouTube po polsku (także bez napisów)</title>
+    <meta
+      name="description"
+      content="Wklej link YouTube i otrzymaj czytelne podsumowanie z timestampami. Działa też bez napisów dzięki Whisper ASR. OpenAI, Anthropic lub Cursor."
+    />
+    <meta name="robots" content="index,follow" />
+    <link rel="canonical" href="/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="video-analizier" />
+    <meta property="og:locale" content="pl_PL" />
+    <meta property="og:title" content="video-analizier — podsumowanie YouTube po polsku" />
+    <meta
+      property="og:description"
+      content="Podsumowania filmów YouTube z timestampami. Działa nawet gdy brak napisów."
+    />
+    <meta property="og:image" content="/assets/og-default.svg" />
+    <meta property="og:url" content="/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="video-analizier — podsumowanie YouTube" />
+    <meta
+      name="twitter:description"
+      content="Wklej link → podsumowanie z wnioskami i timestampami. Także bez napisów."
+    />
+    <meta name="twitter:image" content="/assets/og-default.svg" />
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Source+Sans+3:wght@400;600;700&display=swap"
       rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
     />
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Source+Sans+3:wght@400;600;700&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
     <link rel="stylesheet" href="/assets/styles.css" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "video-analizier",
+        "applicationCategory": "MultimediaApplication",
+        "operatingSystem": "Web",
+        "inLanguage": "pl",
+        "description": "Narzędzie do podsumowań filmów YouTube po polsku z timestampami i Q&A.",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "PLN" }
+      }
+    </script>
   </head>
   <body>
     <div class="atmosphere" aria-hidden="true"></div>
     <main class="shell">
       <header class="hero">
         <div class="row-between">
-          <p class="brand">video-analizier</p>
+          <h1 class="brand">video-analizier</h1>
           <button id="llm-toggle" class="ghost" type="button">Klucze LLM</button>
         </div>
         <p class="lede">
           Wklej link do YouTube — dostaniesz czytelne podsumowanie i kluczowe
           wnioski, nawet gdy film nie ma napisów.
         </p>
+        <p id="quota-line" class="muted quota-line">Sprawdzam limit dzienny…</p>
 
         <details id="llm-settings" class="llm-settings">
           <summary class="sr-only">Ustawienia LLM</summary>
@@ -87,9 +132,7 @@
           />
           <button id="submit-btn" type="submit">Podsumuj film</button>
         </form>
-        <p id="status-line" class="status" aria-live="polite">
-          Gotowe do analizy.
-        </p>
+        <p id="status-line" class="status" aria-live="polite">Gotowe do analizy.</p>
         <p id="error-box" class="error-box" hidden></p>
         <ol id="steps" class="steps" hidden>
           <li data-step="downloading">Pobieranie audio</li>
@@ -116,11 +159,14 @@
         <div class="result-actions">
           <button id="retry-btn" class="ghost danger" type="button" hidden>Ponów analizę</button>
           <button id="force-asr-btn" class="ghost" type="button" hidden>Force ASR (Whisper)</button>
+          <button id="share-btn" class="ghost" type="button" hidden>Udostępnij</button>
+          <button id="export-md-btn" class="ghost" type="button" hidden>Eksport MD</button>
           <button id="delete-btn" class="ghost danger" type="button" hidden>Usuń</button>
           <button id="ask-toggle" class="ghost" type="button">Zadaj pytanie do filmu</button>
           <button id="transcript-toggle" class="ghost" type="button">Pokaż transkrypt</button>
           <button id="copy-summary" class="ghost" type="button">Kopiuj podsumowanie</button>
         </div>
+        <p id="share-url-line" class="muted" hidden></p>
 
         <form id="ask-form" class="ask-form" hidden>
           <label>
@@ -151,8 +197,19 @@
       </section>
 
       <details class="more-sources">
-        <summary>Inne źródła (PDF, tekst, audio)</summary>
+        <summary>Inne źródła i playlista</summary>
         <div class="more-grid">
+          <form id="playlist-form" class="form">
+            <label>
+              Playlista (jeden URL w linii)
+              <textarea
+                id="playlist-urls"
+                rows="4"
+                placeholder="https://www.youtube.com/watch?v=...&#10;https://youtu.be/..."
+              ></textarea>
+            </label>
+            <button type="submit">Dodaj playlistę</button>
+          </form>
           <form id="upload-form" class="form">
             <label>
               Plik PDF / TXT / audio
@@ -173,7 +230,36 @@
           </form>
         </div>
       </details>
+
+      <section class="faq" aria-labelledby="faq-title">
+        <h2 id="faq-title">Jak działa podsumowanie YouTube?</h2>
+        <details>
+          <summary>Czy działa bez napisów?</summary>
+          <p>
+            Tak. Jeśli film nie ma napisów, używamy Whisper ASR po polsku
+            (`WHISPER_MODEL`, domyślnie small).
+          </p>
+        </details>
+        <details>
+          <summary>Jakie klucze LLM mogę podłączyć?</summary>
+          <p>OpenAI, Anthropic albo klucz OpenAI-compatible (np. jak w Cursor → Models).</p>
+        </details>
+        <details>
+          <summary>Czy mogę udostępnić wynik?</summary>
+          <p>
+            Tak — przycisk „Udostępnij” tworzy publiczną stronę
+            <code>/s/…</code> z podsumowaniem (z meta OG pod SEO/social).
+          </p>
+        </details>
+        <details>
+          <summary>Czy YouTube czasem blokuje pobieranie?</summary>
+          <p>
+            Na IP datacenter bywa bot-check. Pomaga
+            <code>YTDLP_PROXY</code> lub <code>YTDLP_COOKIES</code>.
+          </p>
+        </details>
+      </section>
     </main>
-    <script src="/assets/app.js"></script>
+    <script src="/assets/app.js" defer></script>
   </body>
 </html>

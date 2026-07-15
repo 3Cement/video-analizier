@@ -11,7 +11,11 @@ services:
       - DATA_DIR=/app/data
       - MEDIA_DIR=/app/data/media
       - DATABASE_URL=sqlite:////app/data/app.db
-      - WORKER_MODE=false
+      - WORKER_MODE=true
+      - CAPTIONS_FIRST=true
+      - JOB_MAX_WORKERS=2
+    depends_on:
+      - worker
 
   worker:
     build: .
@@ -25,5 +29,4 @@ services:
       - MEDIA_DIR=/app/data/media
       - DATABASE_URL=sqlite:////app/data/app.db
       - WORKER_MODE=true
-    profiles:
-      - worker
+      - CAPTIONS_FIRST=true

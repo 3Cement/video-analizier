@@ -53,10 +53,21 @@ def run_worker_once(db) -> bool:
     return True
 
 
+def preload_whisper() -> None:
+    try:
+        from app.asr.whisper import _get_model
+        from app.config import get_settings
+
+        _get_model(get_settings())
+    except Exception:
+        return
+
+
 def run_worker_loop() -> None:
     settings = get_settings()
     settings.ensure_dirs()
     init_db()
+    preload_whisper()
     poll = max(1.0, settings.worker_poll_seconds)
 
     while True:

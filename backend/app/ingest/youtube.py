@@ -187,10 +187,39 @@ def ingest_youtube(
     output_dir: Path,
     language: str = "pl",
 ) -> YouTubeIngestResult:
+    from app.config import get_settings
+
+    settings = get_settings()
     output_dir.mkdir(parents=True, exist_ok=True)
     outtmpl = str(output_dir / "%(id)s.%(ext)s")
 
-    # Audio first — do not couple media download to subtitle fetch failures.
+    captions: list[CaptionSegment] = []
+    caption_lang: Optional[str] = None
+    info: dict[str, Any]
+
+    if settings.captions_first:
+        # Metadata + captions first; skip audio download if captions are usable.
+        meta_opts = {**_base_ydl_opts(), "skip_download": True, "quiet": True}
+        info = _download_with_retry(url, meta_opts)
+        _download_captions_best_effort(url, output_dir, language)
+        caption_path, caption_lang = _pick_caption_files(
+            output_dir, [language, f"{language}-PL", "en"]
+        )
+        if caption_path is not None:
+            captions = _load_captions(caption_path)
+        if captions:
+            video_id = info.get("id") or "unknown"
+            return YouTubeIngestResult(
+                title=info.get("title") or video_id,
+                url=info.get("webpage_url") or url,
+                video_id=video_id,
+                duration_seconds=float(info["duration"]) if info.get("duration") is not None else None,
+                audio_path=None,
+                captions=captions,
+                caption_lang=caption_lang,
+            )
+
+    # Audio download — do not couple media download to subtitle fetch failures.
     ydl_opts: dict[str, Any] = {
         **_base_ydl_opts(),
         "format": "bestaudio/best",
@@ -220,12 +249,13 @@ def ingest_youtube(
         audio_candidates = [p for p in matches if p.suffix.lower() in {".mp3", ".m4a", ".webm", ".opus", ".wav"}]
         audio_path = audio_candidates[0] if audio_candidates else None
 
-    _download_captions_best_effort(url, output_dir, language)
-
-    caption_path, caption_lang = _pick_caption_files(output_dir, [language, f"{language}-PL", "en"])
-    captions: list[CaptionSegment] = []
-    if caption_path is not None:
-        captions = _load_captions(caption_path)
+    if not captions:
+        _download_captions_best_effort(url, output_dir, language)
+        caption_path, caption_lang = _pick_caption_files(
+            output_dir, [language, f"{language}-PL", "en"]
+        )
+        if caption_path is not None:
+            captions = _load_captions(caption_path)
 
     return YouTubeIngestResult(
         title=title,

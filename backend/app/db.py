@@ -50,6 +50,8 @@ def migrate_schema() -> None:
     _sqlite_add_column_if_missing(engine, "sources", "video_id", "video_id VARCHAR(32)")
     _sqlite_add_column_if_missing(engine, "sources", "error_code", "error_code VARCHAR(64)")
     _sqlite_add_column_if_missing(engine, "sources", "error_hint", "error_hint TEXT")
+    _sqlite_add_column_if_missing(engine, "sources", "share_slug", "share_slug VARCHAR(64)")
+    _sqlite_add_column_if_missing(engine, "sources", "is_public", "is_public BOOLEAN DEFAULT 0")
 
 
 def init_db() -> None:

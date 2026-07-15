@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     daily_source_limit: int = 50
     worker_mode: bool = False
     worker_poll_seconds: float = 3.0
+    job_max_workers: int = 2
+    captions_first: bool = False
+    max_summary_chunks: int = 6
+    public_base_url: str = ""
 
     host: str = "0.0.0.0"
     port: int = 8000
