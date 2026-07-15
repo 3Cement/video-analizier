@@ -47,3 +47,10 @@ PYTHONPATH=backend python -m app analyze "https://www.youtube.com/watch?v=VIDEO_
 
 `asr_clip_test.json` — Whisper (`tiny`) on a 90s clip from the same video.
 Shows that ASR path works end-to-end; for Polish production use captions when available or `WHISPER_MODEL=small+`.
+
+
+### ASR from real YouTube video (no manual subs)
+
+`youtube_asr_no_manual_subs_transcript.txt` — Whisper `small` on
+[Treningi W Domu? Brutalna Prawda](https://www.youtube.com/watch?v=tPsVjYR0tGY)
+(`force_asr=true`, auto-captions ignored; video has no manual subtitles).
