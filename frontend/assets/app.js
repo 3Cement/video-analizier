@@ -4,6 +4,7 @@ const state = {
   pollTimer: null,
   summaryText: "",
   videoUrl: "",
+  lastDetailKey: "",
 };
 
 const el = {
@@ -209,13 +210,33 @@ async function refreshSources() {
   }
 }
 
+async function pollJobStatus() {
+  if (!state.selectedId) {
+    await refreshSources();
+    return;
+  }
+  const status = await api(`/sources/${state.selectedId}/status`);
+  updateSteps(status.status);
+  const item = state.sources.find((s) => s.id === state.selectedId);
+  if (item) item.status = status.status;
+  renderSources();
+
+  if (status.status === "ready" || status.status === "failed") {
+    await refreshSources();
+    await selectSource(state.selectedId, false);
+    return;
+  }
+  setStatus(`Przetwarzanie: ${status.status}`);
+  setBusy(true);
+  schedulePoll();
+}
+
 function schedulePoll() {
   if (state.pollTimer) return;
   state.pollTimer = setTimeout(async () => {
     state.pollTimer = null;
     try {
-      await refreshSources();
-      if (state.selectedId) await selectSource(state.selectedId, false);
+      await pollJobStatus();
     } catch (err) {
       setStatus(err.message);
       setBusy(false);
@@ -269,13 +290,16 @@ async function selectSource(id, resetAnswer = true) {
 
   const latestSummary = (detail.summaries || []).at(-1);
   state.summaryText = latestSummary?.content || "";
-  el.summaryBox.innerHTML =
-    renderMarkdown(state.summaryText, state.videoUrl) ||
-    (detail.status === "ready"
-      ? "<p class='muted'>Brak podsumowania — spróbuj przetworzyć ponownie.</p>"
-      : "<p class='muted'>Podsumowanie pojawi się po zakończeniu analizy…</p>");
-
-  renderTranscript(detail.segments || [], state.videoUrl);
+  const detailKey = `${detail.id}:${detail.status}:${detail.updated_at}:${state.summaryText.length}:${(detail.segments || []).length}`;
+  if (detailKey !== state.lastDetailKey) {
+    state.lastDetailKey = detailKey;
+    el.summaryBox.innerHTML =
+      renderMarkdown(state.summaryText, state.videoUrl) ||
+      (detail.status === "ready"
+        ? "<p class='muted'>Brak podsumowania — spróbuj przetworzyć ponownie.</p>"
+        : "<p class='muted'>Podsumowanie pojawi się po zakończeniu analizy…</p>");
+    renderTranscript(detail.segments || [], state.videoUrl);
+  }
 
   if (resetAnswer) {
     el.answerBox.hidden = true;

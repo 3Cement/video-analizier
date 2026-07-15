@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app import __version__
@@ -18,7 +18,7 @@ from app.limits import enforce_daily_source_limit
 from app.llm.qa import answer_question
 from app.llm.summarize import summarize_segments
 from app.llm_settings_store import llm_status, save_llm_overrides
-from app.models import Ask, Source, Summary
+from app.models import Ask, Segment, Source, Summary
 from app.pipeline import (
     process_text_source,
     process_upload_source,
@@ -45,7 +45,12 @@ router = APIRouter()
 protected = APIRouter(dependencies=[Depends(verify_api_key)])
 
 
-def _to_source_out(source: Source) -> SourceOut:
+def _to_source_out(source: Source, segment_count: int | None = None) -> SourceOut:
+    if segment_count is None:
+        if source.segments is not None:
+            segment_count = len(source.segments)
+        else:
+            segment_count = 0
     return SourceOut(
         id=source.id,
         user_id=source.user_id,
@@ -62,8 +67,41 @@ def _to_source_out(source: Source) -> SourceOut:
         transcript_method=source.transcript_method,
         created_at=source.created_at,
         updated_at=source.updated_at,
-        segment_count=len(source.segments) if source.segments is not None else 0,
+        segment_count=segment_count,
     )
+
+
+def _get_owned_source(
+    db: Session,
+    source_id: int,
+    user_id: str,
+    *,
+    load_segments: bool = False,
+    load_summaries: bool = False,
+) -> Source:
+    stmt = select(Source).where(Source.id == source_id, Source.user_id == user_id)
+    options = []
+    if load_segments:
+        options.append(selectinload(Source.segments))
+    if load_summaries:
+        options.append(selectinload(Source.summaries))
+    if options:
+        stmt = stmt.options(*options)
+    source = db.scalar(stmt)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found")
+    return source
+
+
+def _segment_counts(db: Session, source_ids: list[int]) -> dict[int, int]:
+    if not source_ids:
+        return {}
+    rows = db.execute(
+        select(Segment.source_id, func.count())
+        .where(Segment.source_id.in_(source_ids))
+        .group_by(Segment.source_id)
+    ).all()
+    return {int(source_id): int(count) for source_id, count in rows}
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -87,24 +125,24 @@ def list_sources(
     db: Session = Depends(get_db),
     user_id: str = Depends(get_optional_user_id),
 ) -> list[SourceOut]:
-    sources = db.scalars(
-        select(Source)
-        .where(Source.user_id == user_id)
-        .options(selectinload(Source.segments))
-        .order_by(Source.id.desc())
-    ).all()
-    return [_to_source_out(s) for s in sources]
+    sources = list(
+        db.scalars(
+            select(Source).where(Source.user_id == user_id).order_by(Source.id.desc())
+        ).all()
+    )
+    counts = _segment_counts(db, [s.id for s in sources])
+    return [_to_source_out(s, segment_count=counts.get(s.id, 0)) for s in sources]
 
 
 @protected.get("/sources/{source_id}", response_model=SourceDetailOut)
-def get_source(source_id: int, db: Session = Depends(get_db)) -> SourceDetailOut:
-    source = db.scalar(
-        select(Source)
-        .where(Source.id == source_id)
-        .options(selectinload(Source.segments), selectinload(Source.summaries))
+def get_source(
+    source_id: int,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_optional_user_id),
+) -> SourceDetailOut:
+    source = _get_owned_source(
+        db, source_id, user_id, load_segments=True, load_summaries=True
     )
-    if source is None:
-        raise HTTPException(status_code=404, detail="Source not found")
     base = _to_source_out(source)
     return SourceDetailOut(
         **base.model_dump(),
@@ -114,10 +152,12 @@ def get_source(source_id: int, db: Session = Depends(get_db)) -> SourceDetailOut
 
 
 @protected.get("/sources/{source_id}/status", response_model=JobStatusOut)
-def get_status(source_id: int, db: Session = Depends(get_db)) -> JobStatusOut:
-    source = db.get(Source, source_id)
-    if source is None:
-        raise HTTPException(status_code=404, detail="Source not found")
+def get_status(
+    source_id: int,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_optional_user_id),
+) -> JobStatusOut:
+    source = _get_owned_source(db, source_id, user_id)
     progress_map = {
         "pending": "Queued",
         "downloading": "Downloading media",
@@ -137,10 +177,12 @@ def get_status(source_id: int, db: Session = Depends(get_db)) -> JobStatusOut:
 
 
 @protected.get("/sources/{source_id}/asks", response_model=list[AskOut])
-def list_asks(source_id: int, db: Session = Depends(get_db)) -> list[AskOut]:
-    source = db.get(Source, source_id)
-    if source is None:
-        raise HTTPException(status_code=404, detail="Source not found")
+def list_asks(
+    source_id: int,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_optional_user_id),
+) -> list[AskOut]:
+    _get_owned_source(db, source_id, user_id)
     asks = db.scalars(
         select(Ask).where(Ask.source_id == source_id).order_by(Ask.created_at.desc())
     ).all()
@@ -175,16 +217,12 @@ def create_youtube_source(
     if cached is not None:
         clone_source_from_cache(db, source, cached)
         db.commit()
-        source = db.scalar(
-            select(Source).where(Source.id == source.id).options(selectinload(Source.segments))
-        )
-        assert source is not None
+        source = _get_owned_source(db, source.id, user_id, load_segments=True)
         return _to_source_out(source)
 
     run_in_background(process_youtube_source, source.id, auto_summarize=payload.auto_summarize)
-    source = db.scalar(select(Source).where(Source.id == source.id).options(selectinload(Source.segments)))
-    assert source is not None
-    return _to_source_out(source)
+    db.refresh(source)
+    return _to_source_out(source, segment_count=0)
 
 
 @protected.post("/sources/text", response_model=SourceOut)
@@ -205,15 +243,23 @@ def create_text_source(
     db.add(source)
     db.commit()
     db.refresh(source)
+
+    settings = get_settings()
+    dest_dir = settings.media_dir / f"source_{source.id}"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / "content.txt"
+    dest.write_text(payload.text, encoding="utf-8")
+    source.file_path = str(dest)
+    db.commit()
+
     run_in_background(
         process_text_source,
         source.id,
         text=payload.text,
         auto_summarize=payload.auto_summarize,
     )
-    source = db.scalar(select(Source).where(Source.id == source.id).options(selectinload(Source.segments)))
-    assert source is not None
-    return _to_source_out(source)
+    db.refresh(source)
+    return _to_source_out(source, segment_count=0)
 
 
 @protected.post("/sources/upload", response_model=SourceOut)
@@ -253,9 +299,8 @@ async def upload_source(
     db.commit()
 
     run_in_background(process_upload_source, source.id, auto_summarize=auto_summarize)
-    source = db.scalar(select(Source).where(Source.id == source.id).options(selectinload(Source.segments)))
-    assert source is not None
-    return _to_source_out(source)
+    db.refresh(source)
+    return _to_source_out(source, segment_count=0)
 
 
 @protected.post("/sources/{source_id}/reprocess", response_model=SourceOut)
@@ -263,10 +308,9 @@ def reprocess_source(
     source_id: int,
     payload: ReprocessRequest,
     db: Session = Depends(get_db),
+    user_id: str = Depends(get_optional_user_id),
 ) -> SourceOut:
-    source = db.get(Source, source_id)
-    if source is None:
-        raise HTTPException(status_code=404, detail="Source not found")
+    source = _get_owned_source(db, source_id, user_id)
     source.status = "pending"
     source.error = None
     source.error_code = None
@@ -279,9 +323,8 @@ def reprocess_source(
         force_asr=payload.force_asr,
         auto_summarize=payload.auto_summarize,
     )
-    source = db.scalar(select(Source).where(Source.id == source.id).options(selectinload(Source.segments)))
-    assert source is not None
-    return _to_source_out(source)
+    db.refresh(source)
+    return _to_source_out(source, segment_count=_segment_counts(db, [source.id]).get(source.id, 0))
 
 
 @protected.post("/sources/{source_id}/summarize", response_model=SummaryOut)
@@ -289,12 +332,9 @@ def summarize_source(
     source_id: int,
     payload: SummarizeRequest,
     db: Session = Depends(get_db),
+    user_id: str = Depends(get_optional_user_id),
 ) -> SummaryOut:
-    source = db.scalar(
-        select(Source).where(Source.id == source_id).options(selectinload(Source.segments))
-    )
-    if source is None:
-        raise HTTPException(status_code=404, detail="Source not found")
+    source = _get_owned_source(db, source_id, user_id, load_segments=True)
     if source.status != "ready":
         raise HTTPException(status_code=409, detail=f"Source not ready (status={source.status})")
 
@@ -308,14 +348,14 @@ def summarize_source(
 
 
 @protected.post("/ask", response_model=AskResponse)
-def ask(payload: AskRequest, db: Session = Depends(get_db)) -> AskResponse:
+def ask(
+    payload: AskRequest,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_optional_user_id),
+) -> AskResponse:
     if payload.source_id is None:
         raise HTTPException(status_code=400, detail="source_id is required")
-    source = db.scalar(
-        select(Source).where(Source.id == payload.source_id).options(selectinload(Source.segments))
-    )
-    if source is None:
-        raise HTTPException(status_code=404, detail="Source not found")
+    source = _get_owned_source(db, payload.source_id, user_id, load_segments=True)
     if source.status != "ready":
         raise HTTPException(status_code=409, detail=f"Source not ready (status={source.status})")
 
@@ -327,10 +367,12 @@ def ask(payload: AskRequest, db: Session = Depends(get_db)) -> AskResponse:
 
 
 @protected.delete("/sources/{source_id}")
-def delete_source(source_id: int, db: Session = Depends(get_db)) -> dict[str, str]:
-    source = db.get(Source, source_id)
-    if source is None:
-        raise HTTPException(status_code=404, detail="Source not found")
+def delete_source(
+    source_id: int,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_optional_user_id),
+) -> dict[str, str]:
+    source = _get_owned_source(db, source_id, user_id)
     settings = get_settings()
     media_dir = settings.media_dir / f"source_{source.id}"
     db.delete(source)
