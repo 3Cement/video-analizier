@@ -46,7 +46,7 @@ def _dispatch(db, source: Source) -> None:
     if source.source_type == "podcast":
         process_podcast_source(db, source.id, auto_summarize=True)
         return
-    if source.source_type in {"pdf", "audio", "audiobook", "book", "text"}:
+    if source.source_type in {"pdf", "audio", "audiobook", "book", "text", "document"}:
         process_upload_source(db, source.id, auto_summarize=True)
         return
     source.status = "failed"

@@ -32,3 +32,9 @@ def test_resolve_direct_audio_url():
     ep = resolve_episode_audio("https://cdn.example.com/show/episode.mp3")
     assert ep.audio_url.endswith(".mp3")
     assert "episode.mp3" in ep.title
+
+
+def test_parse_rss_show_metadata():
+    from app.ingest.podcast import parse_rss
+    episodes = parse_rss(RSS, max_episodes=2)
+    assert episodes[0].show_title == "Show"

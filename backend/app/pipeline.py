@@ -10,7 +10,8 @@ from app.asr.whisper import transcribe_audio
 from app.config import get_settings
 from app.errors import classify_job_error
 from app.ingest.article import fetch_article
-from app.ingest.epub import extract_epub_text
+from app.ingest.docx_ingest import extract_docx_text
+from app.ingest.epub import chapters_to_segments, extract_epub_chapters
 from app.ingest.pdf import extract_pdf_text
 from app.ingest.podcast import download_audio, resolve_episode_audio
 from app.ingest.text import load_text_file, text_to_segments
@@ -32,6 +33,15 @@ def _fail_source(db: Session, source_id: int, exc: BaseException) -> None:
     source.error = job_error.message
     source.error_code = job_error.code
     source.error_hint = job_error.hint
+    source.progress = 100.0
+    source.progress_message = "failed"
+    db.commit()
+
+
+def _set_progress(db: Session, source: Source, status: str, pct: float, message: str) -> None:
+    source.status = status
+    source.progress = max(0.0, min(100.0, float(pct)))
+    source.progress_message = message
     db.commit()
 
 
@@ -74,8 +84,7 @@ def process_youtube_source(db: Session, source_id: int, auto_summarize: bool = T
         return
 
     try:
-        source.status = "downloading"
-        db.commit()
+        _set_progress(db, source, "downloading", 5, "Downloading media")
 
         work_dir = settings.media_dir / f"source_{source.id}"
         if work_dir.exists():
@@ -117,6 +126,8 @@ def process_youtube_source(db: Session, source_id: int, auto_summarize: bool = T
         source = db.get(Source, source_id)
         assert source is not None
         source.status = "ready"
+        source.progress = 100.0
+        source.progress_message = "ready"
         source.error = None
         source.error_code = None
         source.error_hint = None
@@ -150,6 +161,8 @@ def process_text_source(
         source = db.get(Source, source_id)
         assert source is not None
         source.status = "ready"
+        source.progress = 100.0
+        source.progress_message = "ready"
         source.error = None
         source.error_code = None
         source.error_hint = None
@@ -178,12 +191,12 @@ def process_upload_source(db: Session, source_id: int, auto_summarize: bool = Tr
             text = extract_pdf_text(path)
             rows = text_to_segments(text)
         elif suffix == ".epub":
-            source.status = "transcribing"
+            _set_progress(db, source, "transcribing", 20, "Extracting EPUB chapters")
             source.transcript_method = "epub"
             source.source_type = "book"
             db.commit()
-            text = extract_epub_text(path)
-            rows = text_to_segments(text)
+            chapters = extract_epub_chapters(path)
+            rows = chapters_to_segments(chapters)
         elif suffix in {".txt", ".md"}:
             source.status = "transcribing"
             source.transcript_method = "text"
@@ -218,6 +231,8 @@ def process_upload_source(db: Session, source_id: int, auto_summarize: bool = Tr
         source = db.get(Source, source_id)
         assert source is not None
         source.status = "ready"
+        source.progress = 100.0
+        source.progress_message = "ready"
         source.error = None
         source.error_code = None
         source.error_hint = None
@@ -238,6 +253,8 @@ def process_article_source(db: Session, source_id: int, auto_summarize: bool = T
         result = fetch_article(source.url or "")
         source.title = result.title or source.title
         source.url = result.url
+        source.author = result.author
+        _set_progress(db, source, "downloading", 30, "Article downloaded")
 
         settings = get_settings()
         work_dir = settings.media_dir / f"source_{source.id}"
@@ -261,6 +278,8 @@ def process_article_source(db: Session, source_id: int, auto_summarize: bool = T
         source = db.get(Source, source_id)
         assert source is not None
         source.status = "ready"
+        source.progress = 100.0
+        source.progress_message = "ready"
         source.error = None
         source.error_code = None
         source.error_hint = None
@@ -280,6 +299,11 @@ def process_podcast_source(db: Session, source_id: int, auto_summarize: bool = T
         db.commit()
         episode = resolve_episode_audio(source.url or "")
         source.title = episode.title or source.title
+        source.show_title = episode.show_title
+        source.description = episode.description
+        source.author = episode.author
+        source.published_at = episode.published_at
+        _set_progress(db, source, "downloading", 25, "Downloading episode audio")
         work_dir = settings.media_dir / f"source_{source.id}"
         work_dir.mkdir(parents=True, exist_ok=True)
         suffix = Path(episode.audio_url.split("?", 1)[0]).suffix.lower() or ".mp3"
@@ -310,6 +334,8 @@ def process_podcast_source(db: Session, source_id: int, auto_summarize: bool = T
         source = db.get(Source, source_id)
         assert source is not None
         source.status = "ready"
+        source.progress = 100.0
+        source.progress_message = "ready"
         source.error = None
         source.error_code = None
         source.error_hint = None
@@ -372,6 +398,8 @@ def reprocess_source_from_media(
         source = db.get(Source, source_id)
         assert source is not None
         source.status = "ready"
+        source.progress = 100.0
+        source.progress_message = "ready"
         source.error = None
         source.error_code = None
         source.error_hint = None

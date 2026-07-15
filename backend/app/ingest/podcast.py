@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-_UA = "Mozilla/5.0 (compatible; video-analizier/0.2; podcast-ingest)"
+_UA = "Mozilla/5.0 (compatible; video-analizier/0.3; podcast-ingest)"
 _AUDIO_EXT = {".mp3", ".m4a", ".m4b", ".ogg", ".opus", ".wav", ".flac", ".aac", ".mp4"}
 
 
@@ -19,6 +19,11 @@ class PodcastEpisode:
     audio_url: str
     page_url: Optional[str] = None
     duration_hint: Optional[float] = None
+    show_title: Optional[str] = None
+    description: Optional[str] = None
+    author: Optional[str] = None
+    published_at: Optional[str] = None
+    guid: Optional[str] = None
 
 
 def _strip_ns(tag: str) -> str:
@@ -26,51 +31,11 @@ def _strip_ns(tag: str) -> str:
 
 
 def _text(el: Optional[ET.Element]) -> str:
-    if el is None or el.text is None:
+    if el is None:
         return ""
-    return re.sub(r"\s+", " ", el.text).strip()
-
-
-def parse_rss(feed_xml: str, max_episodes: int = 5) -> list[PodcastEpisode]:
-    root = ET.fromstring(feed_xml)
-    items: list[ET.Element] = []
-    for el in root.iter():
-        if _strip_ns(el.tag) == "item":
-            items.append(el)
-
-    episodes: list[PodcastEpisode] = []
-    for item in items:
-        title = ""
-        page_url = None
-        audio_url = None
-        duration_hint = None
-        for child in list(item):
-            name = _strip_ns(child.tag).lower()
-            if name == "title" and not title:
-                title = _text(child)
-            elif name == "link" and not page_url:
-                page_url = _text(child) or child.get("href")
-            elif name == "enclosure":
-                enc_url = child.get("url") or ""
-                enc_type = (child.get("type") or "").lower()
-                if enc_url and ("audio" in enc_type or Path(urlparse(enc_url).path).suffix.lower() in _AUDIO_EXT):
-                    audio_url = enc_url
-            elif name in {"duration", "itunes:duration"} or name == "duration":
-                raw = _text(child)
-                duration_hint = _parse_duration(raw) if raw else duration_hint
-        if not audio_url:
-            continue
-        episodes.append(
-            PodcastEpisode(
-                title=title or "Podcast episode",
-                audio_url=audio_url,
-                page_url=page_url,
-                duration_hint=duration_hint,
-            )
-        )
-        if len(episodes) >= max_episodes:
-            break
-    return episodes
+    if el.text:
+        return re.sub(r"\s+", " ", el.text).strip()
+    return re.sub(r"\s+", " ", "".join(el.itertext())).strip()
 
 
 def _parse_duration(raw: str) -> Optional[float]:
@@ -89,6 +54,78 @@ def _parse_duration(raw: str) -> Optional[float]:
     return None
 
 
+def parse_rss(feed_xml: str, max_episodes: int = 5) -> list[PodcastEpisode]:
+    root = ET.fromstring(feed_xml)
+    show_title = ""
+    show_author = ""
+    for el in root.iter():
+        name = _strip_ns(el.tag).lower()
+        if name == "channel":
+            for child in list(el):
+                cname = _strip_ns(child.tag).lower()
+                if cname == "title" and not show_title:
+                    show_title = _text(child)
+                elif cname in {"author", "name"} and not show_author:
+                    show_author = _text(child)
+            break
+
+    items: list[ET.Element] = []
+    for el in root.iter():
+        if _strip_ns(el.tag) == "item":
+            items.append(el)
+
+    episodes: list[PodcastEpisode] = []
+    for item in items:
+        title = ""
+        page_url = None
+        audio_url = None
+        duration_hint = None
+        description = None
+        author = show_author or None
+        published_at = None
+        guid = None
+        for child in list(item):
+            name = _strip_ns(child.tag).lower()
+            if name == "title" and not title:
+                title = _text(child)
+            elif name == "link" and not page_url:
+                page_url = _text(child) or child.get("href")
+            elif name == "enclosure":
+                enc_url = child.get("url") or ""
+                enc_type = (child.get("type") or "").lower()
+                if enc_url and ("audio" in enc_type or Path(urlparse(enc_url).path).suffix.lower() in _AUDIO_EXT):
+                    audio_url = enc_url
+            elif name == "duration":
+                raw = _text(child)
+                duration_hint = _parse_duration(raw) if raw else duration_hint
+            elif name in {"description", "summary"} and not description:
+                description = _text(child)[:2000] or None
+            elif name in {"author", "creator"} and not author:
+                author = _text(child) or author
+            elif name in {"pubdate", "date"} and not published_at:
+                published_at = _text(child) or None
+            elif name == "guid" and not guid:
+                guid = _text(child) or child.get("isPermaLink")
+        if not audio_url:
+            continue
+        episodes.append(
+            PodcastEpisode(
+                title=title or "Podcast episode",
+                audio_url=audio_url,
+                page_url=page_url,
+                duration_hint=duration_hint,
+                show_title=show_title or None,
+                description=description,
+                author=author,
+                published_at=published_at,
+                guid=guid,
+            )
+        )
+        if len(episodes) >= max_episodes:
+            break
+    return episodes
+
+
 def fetch_rss_episodes(feed_url: str, max_episodes: int = 5, timeout: float = 45.0) -> list[PodcastEpisode]:
     with httpx.Client(timeout=timeout, follow_redirects=True, headers={"User-Agent": _UA}) as client:
         response = client.get(feed_url)
@@ -97,7 +134,6 @@ def fetch_rss_episodes(feed_url: str, max_episodes: int = 5, timeout: float = 45
 
 
 def resolve_episode_audio(url: str, timeout: float = 45.0) -> PodcastEpisode:
-    """Accept direct audio URL or a page/RSS item URL containing an enclosure."""
     suffix = Path(urlparse(url).path).suffix.lower()
     if suffix in _AUDIO_EXT:
         name = Path(urlparse(url).path).name or "episode"
@@ -115,7 +151,6 @@ def resolve_episode_audio(url: str, timeout: float = 45.0) -> PodcastEpisode:
             raise RuntimeError("RSS feed has no audio tags")
         return episodes[0]
 
-    # HTML page: look for audio / og:audio / enclosure-like links
     audio_match = re.search(
         r'(?:og:audio|audio["\']?\s+src|href)=["\']([^"\']+\.(?:mp3|m4a|m4b|ogg|opus|wav|flac))["\']',
         body,

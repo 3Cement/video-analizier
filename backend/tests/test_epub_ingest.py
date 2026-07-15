@@ -2,10 +2,10 @@ from pathlib import Path
 
 from ebooklib import epub
 
-from app.ingest.epub import extract_epub_text
+from app.ingest.epub import chapters_to_segments, extract_epub_chapters, extract_epub_text
 
 
-def test_extract_epub_text(tmp_path: Path):
+def test_extract_epub_chapters(tmp_path: Path):
     book = epub.EpubBook()
     book.set_identifier("id123")
     book.set_title("Demo Book")
@@ -25,6 +25,10 @@ def test_extract_epub_text(tmp_path: Path):
     path = tmp_path / "demo.epub"
     epub.write_epub(str(path), book)
 
-    text = extract_epub_text(path)
-    assert "sufficiently long chapter" in text
-    assert "Another paragraph" in text
+    chapters = extract_epub_chapters(path)
+    assert chapters
+    assert "Intro" in chapters[0].title
+    assert "sufficiently long chapter" in chapters[0].text
+    rows = chapters_to_segments(chapters)
+    assert rows and "Intro" in rows[0][2]
+    assert "Another paragraph" in extract_epub_text(path)

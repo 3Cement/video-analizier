@@ -47,3 +47,13 @@ Opcjonalnie nginx + HTTPS (Caddy/Certbot) na port 8000.
 | `WHISPER_MODEL` | `small`+ dla polskiego ASR |
 
 Bez klucza LLM aplikacja i tak działa — zwraca podsumowanie ekstraktywne z timestampami. Klucze można też wkleić w UI (Klucze LLM).
+
+
+## Accounts / library
+
+- Optional accounts: `POST /api/auth/register` and `/api/auth/login` (Bearer token).
+- Set `AUTH_REQUIRED=true` to require login for API (except health/auth).
+- Per-type daily limits: `DAILY_YOUTUBE_LIMIT`, `DAILY_AUDIO_LIMIT`, `DAILY_ARTICLE_LIMIT`.
+- Library: `/api/library/search`, collections, tags, notes.
+- PWA: `/manifest.webmanifest` + `/sw.js`.
+- New ingest deps in image via `requirements.txt` (trafilatura, ebooklib, python-docx).

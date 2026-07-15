@@ -1,0 +1,18 @@
+{
+  "name": "video-analizier",
+  "short_name": "analizier",
+  "description": "Transkrypcje i wiedza z filmów, podcastów, książek i artykułów",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f1419",
+  "theme_color": "#0f1419",
+  "lang": "pl",
+  "icons": [
+    {
+      "src": "/assets/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
