@@ -5,7 +5,8 @@ from typing import Optional
 
 from app.chunking import chunk_segments, format_timestamp
 from app.config import Settings, get_settings
-from app.llm.client import chat_completion
+from app.llm.client import chat_completion, has_llm_credentials
+from app.llm_settings_store import apply_llm_overrides
 
 SYSTEM_PROMPT = """You are a source-grounded research assistant similar to NotebookLM.
 Use ONLY the provided transcript/source excerpts.
@@ -111,8 +112,8 @@ def _extractive_briefing(
     points = [f"- [{format_timestamp(start)}] {text}" for start, _end, text in picks]
     joined = "\n".join(points) if points else "- (brak segmentów)"
     note = (
-        "_Wygenerowano lokalnie bez OPENAI_API_KEY. "
-        "Ustaw klucz API, aby dostać syntezę LLM w stylu NotebookLM._"
+        "_Wygenerowano lokalnie bez klucza LLM. "
+        "Ustaw klucz OpenAI / Anthropic / Cursor, aby dostać syntezę w stylu NotebookLM._"
     )
 
     if kind == "faq":
@@ -152,11 +153,11 @@ def summarize_segments(
     kind: str = "briefing",
     settings: Optional[Settings] = None,
 ) -> str:
-    settings = settings or get_settings()
+    settings = apply_llm_overrides(settings or get_settings())
     if not segments:
         return "Brak treści źródłowej do podsumowania."
 
-    if not settings.openai_api_key:
+    if not has_llm_credentials(settings):
         return _extractive_briefing(segments, title, kind=kind)
 
     chunks = chunk_segments(segments, max_chars=2800)

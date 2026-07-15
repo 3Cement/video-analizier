@@ -14,7 +14,7 @@ Działa też z PDF / tekstem / audio.
 
 ```bash
 cp .env.example .env
-# opcjonalnie: OPENAI_API_KEY, YTDLP_PROXY
+# opcjonalnie: LLM_PROVIDER + OPENAI/ANTHROPIC/CURSOR key, YTDLP_PROXY
 docker compose up --build
 ```
 
@@ -51,9 +51,11 @@ PYTHONPATH=backend python -m app analyze "https://www.youtube.com/watch?v=VIDEO_
 
 | Zmienna | Opis |
 |---------|------|
-| `OPENAI_API_KEY` | Klucz do LLM (summary + Q&A) |
-| `OPENAI_BASE_URL` | Kompatybilne API OpenAI |
-| `OPENAI_MODEL` | domyślnie `gpt-4o-mini` |
+| `LLM_PROVIDER` | `openai` / `anthropic` / `cursor` |
+| `OPENAI_API_KEY` | Klucz OpenAI |
+| `ANTHROPIC_API_KEY` | Klucz Anthropic |
+| `CURSOR_API_KEY` | Klucz OpenAI-compatible (jak w Cursor BYOK) |
+| `OPENAI_MODEL` / `ANTHROPIC_MODEL` / `CURSOR_MODEL` | modele per provider |
 | `WHISPER_MODEL` | `tiny`/`base`/`small`/`medium`/`large-v3` (dla PL produkcyjnie ≥ `small`) |
 | `WHISPER_DEVICE` | `cpu` lub `cuda` |
 | `WHISPER_LANGUAGE` | domyślnie `pl` |

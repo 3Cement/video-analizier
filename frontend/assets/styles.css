@@ -69,6 +69,37 @@ body {
   color: var(--accent);
 }
 
+.llm-settings {
+  margin: 0 0 1.25rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.llm-settings[open] {
+  margin-bottom: 1.25rem;
+}
+
+.llm-settings .form {
+  margin-top: 0;
+}
+
+.provider-fields {
+  display: grid;
+  gap: 0.75rem;
+}
+
+select {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--ink);
+  padding: 0.7rem 0.85rem;
+  font: inherit;
+}
+
 .lede {
   margin: 1rem 0 1.5rem;
   max-width: 36rem;

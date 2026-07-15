@@ -1,12 +1,22 @@
 from app.llm.summarize import summarize_segments
 
 
-def test_extractive_faq_kind(monkeypatch):
+def _clear_llm_env(monkeypatch, tmp_path):
     from app.config import get_settings
 
     get_settings.cache_clear()
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    monkeypatch.setenv("CURSOR_API_KEY", "")
     get_settings.cache_clear()
+
+
+def test_extractive_faq_kind(monkeypatch, tmp_path):
+    from app.config import get_settings
+
+    _clear_llm_env(monkeypatch, tmp_path)
     segments = [
         (0.0, 5.0, "Swingi kettlebell robić trzy serie po piętnaście."),
         (20.0, 25.0, "Odpoczynek między seriami to czterdzieści pięć sekund."),
@@ -18,12 +28,10 @@ def test_extractive_faq_kind(monkeypatch):
     get_settings.cache_clear()
 
 
-def test_extractive_briefing_kind(monkeypatch):
+def test_extractive_briefing_kind(monkeypatch, tmp_path):
     from app.config import get_settings
 
-    get_settings.cache_clear()
-    monkeypatch.setenv("OPENAI_API_KEY", "")
-    get_settings.cache_clear()
+    _clear_llm_env(monkeypatch, tmp_path)
     segments = [
         (
             0.0,

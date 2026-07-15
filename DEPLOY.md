@@ -19,7 +19,7 @@ UI: http://localhost:8000
 1. Połącz repo z Render.
 2. Użyj `render.yaml` albo Web Service + Dockerfile.
 3. Ustaw sekrety:
-   - `OPENAI_API_KEY` — synteza LLM
+   - `LLM_PROVIDER` + `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `CURSOR_API_KEY` — synteza LLM
    - `YTDLP_PROXY` — jeśli YouTube blokuje IP datacenter
 4. Disk `/app/data` (już w `render.yaml`).
 
@@ -39,9 +39,9 @@ Opcjonalnie nginx + HTTPS (Caddy/Certbot) na port 8000.
 
 | Zmienna | Po co |
 |---------|--------|
-| `OPENAI_API_KEY` | Lepsze, syntetyczne podsumowania |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `CURSOR_API_KEY` | Lepsze, syntetyczne podsumowania |
 | `YTDLP_PROXY` | Omija bot-check YouTube na IP chmury |
 | `YTDLP_COOKIES` | Alternatywa / uzupełnienie do proxy |
 | `WHISPER_MODEL` | `small`+ dla polskiego ASR |
 
-Bez `OPENAI_API_KEY` aplikacja i tak działa — zwraca podsumowanie ekstraktywne z timestampami.
+Bez klucza LLM aplikacja i tak działa — zwraca podsumowanie ekstraktywne z timestampami. Klucze można też wkleić w UI (Klucze LLM).

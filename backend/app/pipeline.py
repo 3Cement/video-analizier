@@ -14,6 +14,7 @@ from app.ingest.text import load_text_file, text_to_segments
 from app.ingest.youtube import ingest_youtube, load_local_captions
 from app.llm.summarize import summarize_segments
 from app.limits import check_duration_limit
+from app.llm_settings_store import apply_llm_overrides
 from app.media import probe_duration_seconds
 from app.models import Segment, Source, Summary
 
@@ -54,7 +55,7 @@ def _replace_segments(db: Session, source: Source, rows: list[tuple[float, float
 def _maybe_summarize(db: Session, source: Source, auto_summarize: bool) -> None:
     if not auto_summarize:
         return
-    settings = get_settings()
+    settings = apply_llm_overrides(get_settings())
     segs = [(s.start, s.end, s.text) for s in source.segments]
     content = summarize_segments(segs, title=source.title, kind="briefing", settings=settings)
     db.add(Summary(source_id=source.id, kind="briefing", content=content))

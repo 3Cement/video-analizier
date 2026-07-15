@@ -8,8 +8,10 @@ from pathlib import Path
 from app.chunking import segments_to_transcript
 from app.config import get_settings
 from app.db import get_session, init_db
+from app.llm.client import has_llm_credentials
 from app.llm.qa import answer_question
 from app.llm.summarize import summarize_segments
+from app.llm_settings_store import apply_llm_overrides
 from app.models import Source, Summary
 from app.pipeline import process_youtube_source
 
@@ -40,8 +42,9 @@ def cmd_analyze(args: argparse.Namespace) -> int:
 
         summary_text = ""
         if args.summarize:
-            if not settings.openai_api_key:
-                print("OPENAI_API_KEY missing; using extractive summary fallback", file=sys.stderr)
+            llm_settings = apply_llm_overrides(settings)
+            if not has_llm_credentials(llm_settings):
+                print("LLM key missing; using extractive summary fallback", file=sys.stderr)
             summary_text = summarize_segments(segments, title=source.title, kind="briefing")
             db.add(Summary(source_id=source.id, kind="briefing", content=summary_text))
             db.commit()
@@ -49,8 +52,9 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         answer_text = ""
         citations = []
         if args.ask:
-            if not settings.openai_api_key:
-                print("OPENAI_API_KEY missing; using extractive Q&A fallback", file=sys.stderr)
+            llm_settings = apply_llm_overrides(settings)
+            if not has_llm_credentials(llm_settings):
+                print("LLM key missing; using extractive Q&A fallback", file=sys.stderr)
             answer_text, citations = answer_question(args.ask, segments, title=source.title)
 
         out = {

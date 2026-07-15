@@ -11,9 +11,19 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    llm_provider: str = "openai"  # openai | anthropic | cursor
+
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-4o-mini"
+
+    anthropic_api_key: str = ""
+    anthropic_base_url: str = "https://api.anthropic.com"
+    anthropic_model: str = "claude-sonnet-4-20250514"
+
+    cursor_api_key: str = ""
+    cursor_base_url: str = "https://api.openai.com/v1"
+    cursor_model: str = "gpt-4o-mini"
 
     whisper_model: str = "small"
     whisper_device: str = "cpu"

@@ -7,7 +7,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+os.environ.setdefault("LLM_PROVIDER", "openai")
 os.environ.setdefault("OPENAI_API_KEY", "test-key-not-used")
+os.environ.setdefault("ANTHROPIC_API_KEY", "")
+os.environ.setdefault("CURSOR_API_KEY", "")
 
 
 @pytest.fixture()

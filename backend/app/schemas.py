@@ -114,3 +114,16 @@ class JobStatusOut(BaseModel):
     error_code: Optional[str] = None
     error_hint: Optional[str] = None
     progress: str = ""
+
+
+class LlmSettingsUpdate(BaseModel):
+    llm_provider: Optional[str] = None
+    openai_api_key: Optional[str] = None
+    openai_base_url: Optional[str] = None
+    openai_model: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
+    anthropic_base_url: Optional[str] = None
+    anthropic_model: Optional[str] = None
+    cursor_api_key: Optional[str] = None
+    cursor_base_url: Optional[str] = None
+    cursor_model: Optional[str] = None

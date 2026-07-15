@@ -5,7 +5,8 @@ from typing import Optional
 
 from app.chunking import format_timestamp, segments_to_transcript
 from app.config import Settings, get_settings
-from app.llm.client import chat_completion
+from app.llm.client import chat_completion, has_llm_credentials
+from app.llm_settings_store import apply_llm_overrides
 from app.schemas import Citation
 
 SYSTEM_PROMPT = """You are a source-grounded Q&A assistant.
@@ -170,7 +171,7 @@ def _extractive_answer(
     chosen.sort(key=lambda s: s[0])
     lines = [f"- [{format_timestamp(start)}] {text}" for start, _end, text in chosen]
     answer = (
-        "Na podstawie źródła (tryb ekstraktywny, brak OPENAI_API_KEY):\n" + "\n".join(lines)
+        "Na podstawie źródła (tryb ekstraktywny, brak klucza LLM):\n" + "\n".join(lines)
     )
     citations = [
         Citation(
@@ -190,11 +191,11 @@ def answer_question(
     title: str = "",
     settings: Optional[Settings] = None,
 ) -> tuple[str, list[Citation]]:
-    settings = settings or get_settings()
+    settings = apply_llm_overrides(settings or get_settings())
     if not segments:
         return "Brak zaindeksowanego źródła do odpowiedzi.", []
 
-    if not settings.openai_api_key:
+    if not has_llm_credentials(settings):
         return _extractive_answer(question, segments)
 
     selected = _rank_segments(segments, question)

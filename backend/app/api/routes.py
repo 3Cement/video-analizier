@@ -17,6 +17,7 @@ from app.jobs import run_in_background
 from app.limits import enforce_daily_source_limit
 from app.llm.qa import answer_question
 from app.llm.summarize import summarize_segments
+from app.llm_settings_store import llm_status, save_llm_overrides
 from app.models import Ask, Source, Summary
 from app.pipeline import (
     process_text_source,
@@ -30,6 +31,7 @@ from app.schemas import (
     AskResponse,
     HealthResponse,
     JobStatusOut,
+    LlmSettingsUpdate,
     ReprocessRequest,
     SourceDetailOut,
     SourceOut,
@@ -64,9 +66,20 @@ def _to_source_out(source: Source) -> SourceOut:
     )
 
 
-@protected.get("/health", response_model=HealthResponse)
+@router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(status="ok", version=__version__)
+
+
+@protected.get("/llm/status")
+def get_llm_status() -> dict:
+    return llm_status()
+
+
+@protected.put("/llm/settings")
+def update_llm_settings(payload: LlmSettingsUpdate) -> dict:
+    save_llm_overrides(payload.model_dump(exclude_none=True))
+    return llm_status()
 
 
 @protected.get("/sources", response_model=list[SourceOut])

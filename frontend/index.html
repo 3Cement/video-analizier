@@ -16,11 +16,64 @@
     <div class="atmosphere" aria-hidden="true"></div>
     <main class="shell">
       <header class="hero">
-        <p class="brand">video-analizier</p>
+        <div class="row-between">
+          <p class="brand">video-analizier</p>
+          <button id="llm-toggle" class="ghost" type="button">Klucze LLM</button>
+        </div>
         <p class="lede">
           Wklej link do YouTube — dostaniesz czytelne podsumowanie i kluczowe
           wnioski, nawet gdy film nie ma napisów.
         </p>
+
+        <details id="llm-settings" class="llm-settings">
+          <summary class="sr-only">Ustawienia LLM</summary>
+          <form id="llm-form" class="form">
+            <p class="muted" id="llm-status-line">Wybierz providera i wklej klucz API.</p>
+            <label>
+              Provider
+              <select id="llm-provider">
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="cursor">Cursor (OpenAI-compatible)</option>
+              </select>
+            </label>
+            <div class="provider-fields" data-provider="openai">
+              <label>
+                OpenAI API key
+                <input id="openai-api-key" type="password" autocomplete="off" placeholder="sk-..." />
+              </label>
+              <label>
+                Model
+                <input id="openai-model" type="text" placeholder="gpt-4o-mini" />
+              </label>
+            </div>
+            <div class="provider-fields" data-provider="anthropic" hidden>
+              <label>
+                Anthropic API key
+                <input id="anthropic-api-key" type="password" autocomplete="off" placeholder="sk-ant-..." />
+              </label>
+              <label>
+                Model
+                <input id="anthropic-model" type="text" placeholder="claude-sonnet-4-20250514" />
+              </label>
+            </div>
+            <div class="provider-fields" data-provider="cursor" hidden>
+              <label>
+                Cursor / OpenAI-compatible API key
+                <input id="cursor-api-key" type="password" autocomplete="off" placeholder="key..." />
+              </label>
+              <label>
+                Base URL
+                <input id="cursor-base-url" type="url" placeholder="https://api.openai.com/v1" />
+              </label>
+              <label>
+                Model
+                <input id="cursor-model" type="text" placeholder="gpt-4o-mini" />
+              </label>
+            </div>
+            <button type="submit">Zapisz klucz</button>
+          </form>
+        </details>
 
         <form id="youtube-form" class="hero-form">
           <label class="sr-only" for="youtube-url">Link YouTube</label>

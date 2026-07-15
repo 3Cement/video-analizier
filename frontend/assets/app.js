@@ -24,6 +24,11 @@ const el = {
   retryBtn: document.getElementById("retry-btn"),
   forceAsrBtn: document.getElementById("force-asr-btn"),
   deleteBtn: document.getElementById("delete-btn"),
+  llmToggle: document.getElementById("llm-toggle"),
+  llmSettings: document.getElementById("llm-settings"),
+  llmForm: document.getElementById("llm-form"),
+  llmProvider: document.getElementById("llm-provider"),
+  llmStatusLine: document.getElementById("llm-status-line"),
 };
 
 function formatTs(seconds) {
@@ -466,7 +471,76 @@ document.getElementById("refresh-btn").addEventListener("click", () => {
   refreshSources().catch((e) => setStatus(e.message));
 });
 
+function syncProviderFields() {
+  const provider = el.llmProvider.value;
+  document.querySelectorAll(".provider-fields").forEach((block) => {
+    block.hidden = block.dataset.provider !== provider;
+  });
+}
+
+async function loadLlmStatus() {
+  const status = await api("/llm/status");
+  el.llmProvider.value = status.provider || "openai";
+  document.getElementById("openai-model").value = status.models?.openai || "";
+  document.getElementById("anthropic-model").value = status.models?.anthropic || "";
+  document.getElementById("cursor-model").value = status.models?.cursor || "";
+  document.getElementById("cursor-base-url").value = status.base_urls?.cursor || "";
+  syncProviderFields();
+  const flags = status.configured || {};
+  const labels = [
+    flags.openai ? "OpenAI ✓" : "OpenAI —",
+    flags.anthropic ? "Anthropic ✓" : "Anthropic —",
+    flags.cursor ? "Cursor ✓" : "Cursor —",
+  ];
+  el.llmStatusLine.textContent = `Aktywny: ${status.provider}. ${labels.join(" · ")}. Klucze nie są pokazywane po zapisaniu.`;
+}
+
+el.llmToggle.addEventListener("click", () => {
+  el.llmSettings.open = !el.llmSettings.open;
+});
+
+el.llmProvider.addEventListener("change", syncProviderFields);
+
+el.llmForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const provider = el.llmProvider.value;
+  const payload = { llm_provider: provider };
+  if (provider === "openai") {
+    const key = document.getElementById("openai-api-key").value.trim();
+    const model = document.getElementById("openai-model").value.trim();
+    if (key) payload.openai_api_key = key;
+    if (model) payload.openai_model = model;
+  } else if (provider === "anthropic") {
+    const key = document.getElementById("anthropic-api-key").value.trim();
+    const model = document.getElementById("anthropic-model").value.trim();
+    if (key) payload.anthropic_api_key = key;
+    if (model) payload.anthropic_model = model;
+  } else {
+    const key = document.getElementById("cursor-api-key").value.trim();
+    const model = document.getElementById("cursor-model").value.trim();
+    const base = document.getElementById("cursor-base-url").value.trim();
+    if (key) payload.cursor_api_key = key;
+    if (model) payload.cursor_model = model;
+    if (base) payload.cursor_base_url = base;
+  }
+  try {
+    await api("/llm/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    document.getElementById("openai-api-key").value = "";
+    document.getElementById("anthropic-api-key").value = "";
+    document.getElementById("cursor-api-key").value = "";
+    await loadLlmStatus();
+    setStatus(`Zapisano ustawienia LLM (${provider}).`);
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
+
 refreshSources()
+  .then(() => loadLlmStatus())
   .then(() => {
     const ready = state.sources.find((s) => s.status === "ready");
     if (ready) return selectSource(ready.id);
