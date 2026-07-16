@@ -1,24 +1,28 @@
 from __future__ import annotations
 
 import hashlib
-import hmac
 import secrets
+
+from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerificationError
+
+_hasher = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=2)
 
 
 def hash_password(password: str) -> str:
-    salt = secrets.token_hex(16)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 120_000).hex()
-    return f"{salt}${digest}"
+    return _hasher.hash(password)
 
 
 def verify_password(password: str, password_hash: str) -> bool:
     try:
-        salt, digest = password_hash.split("$", 1)
-    except ValueError:
+        return _hasher.verify(password_hash, password)
+    except (VerificationError, InvalidHashError):
         return False
-    check = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 120_000).hex()
-    return hmac.compare_digest(check, digest)
 
 
 def new_api_token() -> str:
     return secrets.token_urlsafe(32)
+
+
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()

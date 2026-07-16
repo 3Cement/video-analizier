@@ -7,7 +7,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.models import Source
+from app.chunking import chunk_segments
+from app.models import Source, UsageEvent
 
 
 class DurationLimitError(Exception):
@@ -83,6 +84,45 @@ def enforce_daily_source_limit(
                     status_code=429,
                     detail=f"Daily {source_type} limit reached ({limit} per 24h).",
                 )
+
+
+def _usage_count(db: Session, event_type: str, *, user_id: str | None = None) -> int:
+    since = datetime.now(timezone.utc) - timedelta(days=1)
+    stmt = select(func.coalesce(func.sum(UsageEvent.units), 0)).where(
+        UsageEvent.event_type == event_type, UsageEvent.created_at >= since
+    )
+    if user_id is not None:
+        stmt = stmt.where(UsageEvent.user_id == user_id)
+    return int(db.scalar(stmt) or 0)
+
+
+def enforce_question_limit(db: Session, user_id: str, settings: Settings) -> None:
+    used = _usage_count(db, "question", user_id=user_id)
+    if settings.daily_question_limit > 0 and used >= settings.daily_question_limit:
+        raise HTTPException(status_code=429, detail="Daily question limit reached")
+
+
+def record_usage(db: Session, event_type: str, *, user_id: str | None, source_id: int | None = None, units: int = 1) -> None:
+    db.add(UsageEvent(user_id=user_id, event_type=event_type, source_id=source_id, units=units))
+    db.commit()
+
+
+def estimate_summary_calls(segments: list[tuple[float, float, str]], settings: Settings) -> int:
+    chunks = chunk_segments(segments, max_chars=2800)
+    count = min(len(chunks), max(1, settings.max_summary_chunks))
+    return 1 if count <= 1 else count + 1
+
+
+def llm_allowed(db: Session, settings: Settings, required_calls: int = 1) -> bool:
+    return settings.global_daily_llm_limit <= 0 or _usage_count(db, "llm_call") + required_calls <= settings.global_daily_llm_limit
+
+
+def quota_snapshot(db: Session, user_id: str, settings: Settings) -> dict[str, tuple[int, int]]:
+    since = datetime.now(timezone.utc) - timedelta(days=1)
+    sources = int(db.scalar(select(func.count()).select_from(Source).where(Source.user_id == user_id, Source.created_at >= since)) or 0)
+    questions = _usage_count(db, "question", user_id=user_id)
+    global_llm = _usage_count(db, "llm_call")
+    return {"sources": (sources, settings.daily_source_limit), "questions": (questions, settings.daily_question_limit), "global_llm": (global_llm, settings.global_daily_llm_limit)}
 
 
 def enforce_duration_limit(

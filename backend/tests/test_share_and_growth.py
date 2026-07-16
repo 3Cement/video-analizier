@@ -7,7 +7,7 @@ def test_quota_endpoint(client, db_session):
     res = client.get("/api/quota")
     assert res.status_code == 200
     body = res.json()
-    assert "used" in body and "limit" in body and "remaining" in body
+    assert set(body) == {"sources", "questions", "global_llm"}
 
 
 def test_share_page_and_export(client, db_session):

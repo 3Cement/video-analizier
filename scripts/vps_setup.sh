@@ -4,13 +4,13 @@ set -euo pipefail
 # Jednorazowa instalacja video-analizier na VPS (Ubuntu/Debian).
 #
 # Użycie (wklej w terminal VPS-a):
-#   curl -fsSL https://raw.githubusercontent.com/3Cement/video-analizier/claude/project-setup-review-ce6l8x/scripts/vps_setup.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/3Cement/video-analizier/main/scripts/vps_setup.sh | bash
 #
 # Z domeną (automatyczny HTTPS; najpierw ustaw rekord DNS A -> IP VPS-a):
-#   curl -fsSL https://raw.githubusercontent.com/3Cement/video-analizier/claude/project-setup-review-ce6l8x/scripts/vps_setup.sh | DOMAIN=app.twoja-domena.pl bash
+#   curl -fsSL https://raw.githubusercontent.com/3Cement/video-analizier/main/scripts/vps_setup.sh | DOMAIN=app.twoja-domena.pl bash
 
 REPO_URL="${REPO_URL:-https://github.com/3Cement/video-analizier.git}"
-BRANCH="${BRANCH:-claude/project-setup-review-ce6l8x}"
+BRANCH="${BRANCH:-main}"
 APP_DIR="${APP_DIR:-$HOME/video-analizier}"
 
 SUDO=""

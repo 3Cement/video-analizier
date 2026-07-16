@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 import httpx
 from bs4 import BeautifulSoup
+from app.ssrf import safe_get, validate_public_url
 
 try:
     import trafilatura
@@ -63,12 +64,11 @@ def _fallback_bs4(body: str, final_url: str, parsed) -> ArticleIngestResult:
 
 
 def fetch_article(url: str, timeout: float = 45.0) -> ArticleIngestResult:
+    validate_public_url(url)
     parsed = urlparse(url)
-    if parsed.scheme not in {"http", "https"}:
-        raise ValueError("Article URL must be http(s)")
 
-    with httpx.Client(timeout=timeout, follow_redirects=True, headers={"User-Agent": _UA}) as client:
-        response = client.get(url)
+    with httpx.Client(timeout=timeout, headers={"User-Agent": _UA}) as client:
+        response = safe_get(client, url)
         response.raise_for_status()
         final_url = str(response.url)
         body = response.text

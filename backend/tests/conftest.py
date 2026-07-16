@@ -47,8 +47,16 @@ def db_session(tmp_path: Path):
 
 @pytest.fixture()
 def client(db_session):
+    from datetime import datetime, timezone
+    from app.auth import get_optional_user_id
     from app.db import get_db
     from app.main import create_app
+    from app.models import User
+    from app.security import hash_password
+
+    user = User(email="fixture@example.com", password_hash=hash_password("secret123"), token="fixture-session", is_active=True, email_verified_at=datetime.now(timezone.utc))
+    db_session.add(user)
+    db_session.commit()
 
     app = create_app()
 
@@ -59,6 +67,8 @@ def client(db_session):
             pass
 
     app.dependency_overrides[get_db] = _override_db
+    app.dependency_overrides[get_optional_user_id] = lambda: "anonymous"
     with TestClient(app) as test_client:
+        test_client.cookies.set("va_session", "fixture-session")
         yield test_client
     app.dependency_overrides.clear()

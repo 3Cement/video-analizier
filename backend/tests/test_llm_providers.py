@@ -55,7 +55,7 @@ def test_cursor_uses_openai_compatible(monkeypatch):
     openai_cls.assert_called_once_with(api_key="cursor-key", base_url="https://example.com/v1")
 
 
-def test_llm_settings_api_and_override(client, db_session, tmp_path, monkeypatch):
+def test_llm_settings_are_read_only(client, db_session, tmp_path, monkeypatch):
     from app.config import get_settings
 
     get_settings.cache_clear()
@@ -75,12 +75,5 @@ def test_llm_settings_api_and_override(client, db_session, tmp_path, monkeypatch
             "anthropic_model": "claude-test",
         },
     )
-    assert saved.status_code == 200
-    body = saved.json()
-    assert body["provider"] == "anthropic"
-    assert body["configured"]["anthropic"] is True
-
-    settings = apply_llm_overrides(get_settings())
-    assert settings.llm_provider == "anthropic"
-    assert settings.anthropic_api_key == "sk-ant-test"
+    assert saved.status_code in {404, 405}
     get_settings.cache_clear()

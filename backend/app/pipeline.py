@@ -17,10 +17,9 @@ from app.ingest.podcast import download_audio, resolve_episode_audio
 from app.ingest.text import load_text_file, text_to_segments
 from app.ingest.youtube import ingest_youtube, load_local_captions
 from app.llm.summarize import summarize_segments
-from app.limits import check_duration_limit
-from app.llm_settings_store import apply_llm_overrides
+from app.limits import check_duration_limit, estimate_summary_calls, llm_allowed
 from app.media import probe_duration_seconds
-from app.models import Segment, Source, Summary
+from app.models import Segment, Source, Summary, UsageEvent
 
 
 _RETRYABLE_ERROR_CODES = {
@@ -71,6 +70,14 @@ def _set_progress(db: Session, source: Source, status: str, pct: float, message:
     db.commit()
 
 
+def _remove_heavy_media(source: Source, settings) -> None:
+    if source.source_type not in {"youtube", "podcast", "audio", "audiobook"}:
+        return
+    work_dir = settings.media_dir / f"source_{source.id}"
+    shutil.rmtree(work_dir, ignore_errors=True)
+    source.file_path = None
+
+
 def _transcribe_rows(audio_path: Path, language: str, settings) -> list[tuple[float, float, str]]:
     asr = normalize_asr_segments(transcribe_audio(audio_path, language=language, settings=settings))
     return [(s.start, s.end, s.text) for s in asr]
@@ -94,8 +101,14 @@ def _replace_segments(db: Session, source: Source, rows: list[tuple[float, float
 def _maybe_summarize(db: Session, source: Source, auto_summarize: bool) -> None:
     if not auto_summarize:
         return
-    settings = apply_llm_overrides(get_settings())
+    settings = get_settings()
     segs = [(s.start, s.end, s.text) for s in source.segments]
+    summary_count = 2 if source.source_type in {"article", "book", "podcast", "audiobook", "audio", "pdf", "text"} else 1
+    required_calls = estimate_summary_calls(segs, settings) * summary_count
+    if llm_allowed(db, settings, required_calls):
+        db.add(UsageEvent(user_id=source.user_id, event_type="llm_call", source_id=source.id, units=required_calls))
+    else:
+        settings = settings.model_copy(update={"openai_api_key": "", "anthropic_api_key": "", "cursor_api_key": ""})
     content = summarize_segments(segs, title=source.title, kind="briefing", settings=settings)
     db.add(Summary(source_id=source.id, kind="briefing", content=content))
     if source.source_type in {"article", "book", "podcast", "audiobook", "audio", "pdf", "text"}:
@@ -157,6 +170,7 @@ def process_youtube_source(db: Session, source_id: int, auto_summarize: bool = T
         source.error = None
         source.error_code = None
         source.error_hint = None
+        _remove_heavy_media(source, settings)
         db.commit()
     except Exception as exc:  # noqa: BLE001 - persist job failure for API clients
         _fail_source(db, source_id, exc)
@@ -223,6 +237,12 @@ def process_upload_source(db: Session, source_id: int, auto_summarize: bool = Tr
             db.commit()
             chapters = extract_epub_chapters(path)
             rows = chapters_to_segments(chapters)
+        elif suffix == ".docx":
+            source.status = "transcribing"
+            source.transcript_method = "docx"
+            source.source_type = "document"
+            db.commit()
+            rows = text_to_segments(extract_docx_text(path))
         elif suffix in {".txt", ".md"}:
             source.status = "transcribing"
             source.transcript_method = "text"
@@ -262,6 +282,7 @@ def process_upload_source(db: Session, source_id: int, auto_summarize: bool = Tr
         source.error = None
         source.error_code = None
         source.error_hint = None
+        _remove_heavy_media(source, settings)
         db.commit()
     except Exception as exc:  # noqa: BLE001
         _fail_source(db, source_id, exc)
@@ -309,6 +330,7 @@ def process_article_source(db: Session, source_id: int, auto_summarize: bool = T
         source.error = None
         source.error_code = None
         source.error_hint = None
+        _remove_heavy_media(source, settings)
         db.commit()
     except Exception as exc:  # noqa: BLE001
         _fail_source(db, source_id, exc)
@@ -365,6 +387,7 @@ def process_podcast_source(db: Session, source_id: int, auto_summarize: bool = T
         source.error = None
         source.error_code = None
         source.error_hint = None
+        _remove_heavy_media(source, settings)
         db.commit()
     except Exception as exc:  # noqa: BLE001
         _fail_source(db, source_id, exc)

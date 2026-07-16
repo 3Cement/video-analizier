@@ -8,6 +8,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 import httpx
+from app.ssrf import safe_get, validate_public_url
 
 _UA = "Mozilla/5.0 (compatible; video-analizier/0.3; podcast-ingest)"
 _AUDIO_EXT = {".mp3", ".m4a", ".m4b", ".ogg", ".opus", ".wav", ".flac", ".aac", ".mp4"}
@@ -127,8 +128,9 @@ def parse_rss(feed_xml: str, max_episodes: int = 5) -> list[PodcastEpisode]:
 
 
 def fetch_rss_episodes(feed_url: str, max_episodes: int = 5, timeout: float = 45.0) -> list[PodcastEpisode]:
-    with httpx.Client(timeout=timeout, follow_redirects=True, headers={"User-Agent": _UA}) as client:
-        response = client.get(feed_url)
+    validate_public_url(feed_url)
+    with httpx.Client(timeout=timeout, headers={"User-Agent": _UA}) as client:
+        response = safe_get(client, feed_url)
         response.raise_for_status()
         return parse_rss(response.text, max_episodes=max_episodes)
 
@@ -139,8 +141,10 @@ def resolve_episode_audio(url: str, timeout: float = 45.0) -> PodcastEpisode:
         name = Path(urlparse(url).path).name or "episode"
         return PodcastEpisode(title=name, audio_url=url, page_url=url)
 
-    with httpx.Client(timeout=timeout, follow_redirects=True, headers={"User-Agent": _UA}) as client:
-        response = client.get(url)
+    validate_public_url(url)
+
+    with httpx.Client(timeout=timeout, headers={"User-Agent": _UA}) as client:
+        response = safe_get(client, url)
         response.raise_for_status()
         content_type = response.headers.get("content-type", "").lower()
         body = response.text
@@ -164,11 +168,12 @@ def resolve_episode_audio(url: str, timeout: float = 45.0) -> PodcastEpisode:
 
 
 def download_audio(audio_url: str, dest: Path, timeout: float = 180.0) -> Path:
+    validate_public_url(audio_url)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    with httpx.Client(timeout=timeout, follow_redirects=True, headers={"User-Agent": _UA}) as client:
-        with client.stream("GET", audio_url) as response:
-            response.raise_for_status()
-            with dest.open("wb") as out:
-                for chunk in response.iter_bytes():
-                    out.write(chunk)
+    with httpx.Client(timeout=timeout, headers={"User-Agent": _UA}) as client:
+        response = safe_get(client, audio_url)
+        response.raise_for_status()
+        with dest.open("wb") as out:
+            for chunk in response.iter_bytes():
+                out.write(chunk)
     return dest

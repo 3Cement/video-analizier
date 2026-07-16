@@ -57,6 +57,7 @@
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "PLN" }
       }
     </script>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
   </head>
   <body>
     <div class="atmosphere" aria-hidden="true"></div>
@@ -64,63 +65,12 @@
       <header class="hero">
         <div class="row-between">
           <h1 class="brand">video-analizier</h1>
-          <button id="llm-toggle" class="ghost" type="button">Klucze LLM</button>
         </div>
         <p class="lede">
           Wklej link do YouTube — dostaniesz czytelne podsumowanie i kluczowe
           wnioski, nawet gdy film nie ma napisów.
         </p>
         <p id="quota-line" class="muted quota-line">Sprawdzam limit dzienny…</p>
-
-        <details id="llm-settings" class="llm-settings">
-          <summary class="sr-only">Ustawienia LLM</summary>
-          <form id="llm-form" class="form">
-            <p class="muted" id="llm-status-line">Wybierz providera i wklej klucz API.</p>
-            <label>
-              Provider
-              <select id="llm-provider">
-                <option value="openai">OpenAI</option>
-                <option value="anthropic">Anthropic</option>
-                <option value="cursor">Cursor (OpenAI-compatible)</option>
-              </select>
-            </label>
-            <div class="provider-fields" data-provider="openai">
-              <label>
-                OpenAI API key
-                <input id="openai-api-key" type="password" autocomplete="off" placeholder="sk-..." />
-              </label>
-              <label>
-                Model
-                <input id="openai-model" type="text" placeholder="gpt-4o-mini" />
-              </label>
-            </div>
-            <div class="provider-fields" data-provider="anthropic" hidden>
-              <label>
-                Anthropic API key
-                <input id="anthropic-api-key" type="password" autocomplete="off" placeholder="sk-ant-..." />
-              </label>
-              <label>
-                Model
-                <input id="anthropic-model" type="text" placeholder="claude-sonnet-4-20250514" />
-              </label>
-            </div>
-            <div class="provider-fields" data-provider="cursor" hidden>
-              <label>
-                Cursor / OpenAI-compatible API key
-                <input id="cursor-api-key" type="password" autocomplete="off" placeholder="key..." />
-              </label>
-              <label>
-                Base URL
-                <input id="cursor-base-url" type="url" placeholder="https://api.openai.com/v1" />
-              </label>
-              <label>
-                Model
-                <input id="cursor-model" type="text" placeholder="gpt-4o-mini" />
-              </label>
-            </div>
-            <button type="submit">Zapisz klucz</button>
-          </form>
-        </details>
 
         <form id="youtube-form" class="hero-form">
           <label class="sr-only" for="youtube-url">Link YouTube / artykuł / podcast</label>
@@ -217,10 +167,11 @@
           <button id="refresh-btn" class="ghost" type="button">Odśwież</button>
         </div>
         <details class="auth-box">
-          <summary id="auth-summary">Konto (opcjonalne)</summary>
+          <summary id="auth-summary">Konto</summary>
           <form id="auth-form" class="form auth-form">
             <label>Email <input id="auth-email" type="email" required /></label>
             <label>Hasło <input id="auth-password" type="password" minlength="6" required /></label>
+            <div id="turnstile-widget"></div>
             <div class="row-between">
               <button type="submit" data-mode="login">Zaloguj</button>
               <button type="button" id="auth-register" class="ghost">Zarejestruj</button>

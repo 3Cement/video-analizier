@@ -6,7 +6,6 @@ from typing import Optional
 from app.chunking import chunk_segments, format_timestamp
 from app.config import Settings, get_settings
 from app.llm.client import chat_completion, has_llm_credentials
-from app.llm_settings_store import apply_llm_overrides
 
 SYSTEM_PROMPT = """You are a source-grounded research assistant similar to NotebookLM.
 Use ONLY the provided transcript/source excerpts.
@@ -164,7 +163,7 @@ def summarize_segments(
     kind: str = "briefing",
     settings: Optional[Settings] = None,
 ) -> str:
-    settings = apply_llm_overrides(settings or get_settings())
+    settings = settings or get_settings()
     if not segments:
         return "Brak treści źródłowej do podsumowania."
 

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import or_, select, update
 
 from app.config import get_settings
-from app.db import get_session, init_db
+from app.db import get_session
 from app.models import Source
 from app.pipeline import (
     process_article_source,
@@ -15,6 +16,8 @@ from app.pipeline import (
     process_youtube_source,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def reclaim_stale_jobs(db) -> int:
     settings = get_settings()
@@ -22,7 +25,7 @@ def reclaim_stale_jobs(db) -> int:
     result = db.execute(
         update(Source)
         .where(
-            Source.status == "downloading",
+            Source.status.in_(("downloading", "transcribing", "summarizing")),
             Source.claimed_at.is_not(None),
             Source.claimed_at < stale_before,
         )
@@ -45,23 +48,16 @@ def claim_next_pending(db) -> Source | None:
             or_(Source.next_run_at.is_(None), Source.next_run_at <= now),
         )
         .order_by(Source.id.asc())
+        .with_for_update(skip_locked=True)
         .limit(1)
     )
     if source is None:
         return None
-    result = db.execute(
-        update(Source)
-        .where(Source.id == source.id, Source.status == "pending")
-        .values(
-            status="downloading",
-            claimed_at=now,
-            attempts=(Source.attempts + 1),
-            progress_message="claimed",
-        )
-    )
+    source.status = "downloading"
+    source.claimed_at = now
+    source.attempts = int(source.attempts or 0) + 1
+    source.progress_message = "claimed"
     db.commit()
-    if result.rowcount == 0:
-        return None
     db.refresh(source)
     return source
 
@@ -91,7 +87,18 @@ def run_worker_once(db) -> bool:
     source = claim_next_pending(db)
     if source is None:
         return False
-    _dispatch(db, source)
+    started = time.monotonic()
+    try:
+        _dispatch(db, source)
+        logger.info("job_complete job_id=%s user_id=%s source_type=%s duration_ms=%d",
+                    source.id, source.user_id, source.source_type, int((time.monotonic() - started) * 1000))
+    except Exception:
+        db.rollback()
+        failed = db.get(Source, source.id)
+        logger.exception("job_failed job_id=%s user_id=%s source_type=%s duration_ms=%d error_code=%s",
+                         source.id, source.user_id, source.source_type,
+                         int((time.monotonic() - started) * 1000), getattr(failed, "error_code", "unknown"))
+        raise
     return True
 
 
@@ -108,7 +115,6 @@ def preload_whisper() -> None:
 def run_worker_loop() -> None:
     settings = get_settings()
     settings.ensure_dirs()
-    init_db()
     preload_whisper()
     poll = max(1.0, settings.worker_poll_seconds)
 

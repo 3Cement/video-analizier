@@ -45,7 +45,6 @@ class SummaryOut(BaseModel):
 
 class SourceOut(BaseModel):
     id: int
-    user_id: str = "anonymous"
     source_type: str
     title: str
     url: Optional[str] = None
@@ -127,19 +126,6 @@ class JobStatusOut(BaseModel):
     progress_message: str = ""
 
 
-class LlmSettingsUpdate(BaseModel):
-    llm_provider: Optional[str] = None
-    openai_api_key: Optional[str] = None
-    openai_base_url: Optional[str] = None
-    openai_model: Optional[str] = None
-    anthropic_api_key: Optional[str] = None
-    anthropic_base_url: Optional[str] = None
-    anthropic_model: Optional[str] = None
-    cursor_api_key: Optional[str] = None
-    cursor_base_url: Optional[str] = None
-    cursor_model: Optional[str] = None
-
-
 class PlaylistCreateRequest(BaseModel):
     urls: list[str] = Field(..., min_length=1)
     language: str = "pl"
@@ -153,10 +139,16 @@ class ShareOut(BaseModel):
     is_public: bool = True
 
 
-class QuotaOut(BaseModel):
+class QuotaCounter(BaseModel):
     used: int
     limit: int
     remaining: int
+
+
+class QuotaOut(BaseModel):
+    sources: QuotaCounter
+    questions: QuotaCounter
+    global_llm: QuotaCounter
 
 
 
@@ -184,6 +176,7 @@ class PodcastRssCreateRequest(BaseModel):
 class AuthRegisterRequest(BaseModel):
     email: str = Field(..., min_length=5)
     password: str = Field(..., min_length=6)
+    turnstile_token: str = ""
 
 
 class AuthLoginRequest(BaseModel):
@@ -193,8 +186,16 @@ class AuthLoginRequest(BaseModel):
 
 class AuthOut(BaseModel):
     email: str
-    token: str
-    user_id: str
+    verified: bool = True
+
+
+class RegisterOut(BaseModel):
+    ok: bool = True
+    verification_required: bool = True
+
+
+class ResendVerificationRequest(BaseModel):
+    email: str = Field(..., min_length=5)
 
 
 class CollectionCreateRequest(BaseModel):
@@ -258,8 +259,6 @@ class PasswordResetConfirm(BaseModel):
 
 class PasswordResetOut(BaseModel):
     ok: bool = True
-    reset_token: Optional[str] = None
-    reset_link: Optional[str] = None
 
 
 class QueueStatsOut(BaseModel):

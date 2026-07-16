@@ -1,59 +1,88 @@
-# Produkcyjny stack na VPS: api + worker + Caddy (automatyczne HTTPS).
-# Użycie:
-#   DOMAIN=twoja-domena.pl docker compose -f docker-compose.prod.yml up -d --build
-# Bez domeny (goły adres IP, HTTP na porcie 80):
-#   docker compose -f docker-compose.prod.yml up -d --build
-
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-video_analizier}
+      POSTGRES_USER: ${POSTGRES_USER:-video_analizier}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes: ["postgres_data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-video_analizier} -d ${POSTGRES_DB:-video_analizier}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      app_net:
+        ipv4_address: 172.28.0.2
+
   api:
     build: .
     restart: unless-stopped
-    expose:
-      - "8000"
-    env_file:
-      - .env
-    volumes:
-      - ./data:/app/data
+    expose: ["8000"]
+    env_file: [.env]
+    volumes: ["app_data:/app/data"]
     environment:
-      - DATA_DIR=/app/data
-      - MEDIA_DIR=/app/data/media
-      - DATABASE_URL=sqlite:////app/data/app.db
-      - WORKER_MODE=true
-      - CAPTIONS_FIRST=true
-      - JOB_MAX_WORKERS=2
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-video_analizier}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB:-video_analizier}
+      DATA_DIR: /app/data
+      MEDIA_DIR: /app/data/media
+      WORKER_MODE: "true"
+      AUTH_REQUIRED: "true"
+      COOKIE_SECURE: "true"
+      TRUSTED_PROXY_IPS: 172.28.0.4
     depends_on:
-      - worker
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks:
+      app_net:
+        ipv4_address: 172.28.0.3
 
   worker:
     build: .
     restart: unless-stopped
     command: ["python", "-m", "app.worker"]
-    env_file:
-      - .env
-    volumes:
-      - ./data:/app/data
+    env_file: [.env]
+    volumes: ["app_data:/app/data"]
     environment:
-      - DATA_DIR=/app/data
-      - MEDIA_DIR=/app/data/media
-      - DATABASE_URL=sqlite:////app/data/app.db
-      - WORKER_MODE=true
-      - CAPTIONS_FIRST=true
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-video_analizier}:${POSTGRES_PASSWORD}@postgres/${POSTGRES_DB:-video_analizier}
+      DATA_DIR: /app/data
+      MEDIA_DIR: /app/data/media
+      WORKER_MODE: "true"
+      AUTH_REQUIRED: "true"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [app_net]
 
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      - DOMAIN=${DOMAIN:-}
+    ports: ["80:80", "443:443"]
+    environment: ["DOMAIN=${DOMAIN:?DOMAIN is required}"]
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    networks:
+      app_net:
+        ipv4_address: 172.28.0.4
 
 volumes:
+  postgres_data:
+  app_data:
   caddy_data:
   caddy_config:
+
+networks:
+  app_net:
+    ipam:
+      config: [{subnet: 172.28.0.0/24}]

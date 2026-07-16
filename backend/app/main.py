@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 
 from app.api.routes import router
@@ -14,7 +14,8 @@ from app.api.auth_routes import router as auth_router
 from app.api.library import router as library_router
 from app.api.admin import router as admin_router
 from app.config import get_settings
-from app.db import get_session, init_db
+from app.db import get_session
+from app.request_security import CookieOriginMiddleware
 from app.models import Source
 from app.share import render_share_page
 
@@ -23,25 +24,33 @@ FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    settings.validate_production()
     settings.ensure_dirs()
-    init_db()
-
     app = FastAPI(
         title="video-analizier",
         description="Source-grounded analysis for YouTube, audio, PDF and text (NotebookLM-style).",
         version="0.3.0",
     )
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    if settings.allowed_origin_list:
+        app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origin_list,
+                           allow_credentials=True, allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+                           allow_headers=["Content-Type", "X-Admin-API-Key"])
+    app.add_middleware(CookieOriginMiddleware)
     app.include_router(router, prefix="/api")
     app.include_router(auth_router, prefix="/api")
     app.include_router(library_router, prefix="/api/library")
     app.include_router(admin_router, prefix="/api")
+
+    @app.get("/api/health/ready")
+    def readiness() -> dict[str, str]:
+        db = get_session()
+        try:
+            db.execute(text("SELECT 1"))
+            return {"status": "ready"}
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Database unavailable") from exc
+        finally:
+            db.close()
 
     assets_dir = FRONTEND_DIR / "assets"
     if FRONTEND_DIR.exists() and assets_dir.exists():

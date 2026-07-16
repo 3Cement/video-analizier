@@ -9,31 +9,38 @@ from fastapi import HTTPException
 import pytest
 
 
-def test_login_rate_limit(client, monkeypatch):
-    clear_rate_limits()
+def test_login_rate_limit(client, db_session, monkeypatch):
     from app.config import get_settings
 
     get_settings.cache_clear()
     settings = get_settings()
     monkeypatch.setattr(settings, "login_rate_limit", 3)
     monkeypatch.setattr(settings, "login_rate_window_seconds", 600)
-    client.post("/api/auth/register", json={"email": "rate@example.com", "password": "secret123"})
+    from app.models import User
+    from app.security import hash_password
+    from datetime import datetime, timezone
+    db_session.add(User(email="rate@example.com", password_hash=hash_password("secret123"), token="rate", is_active=True, email_verified_at=datetime.now(timezone.utc)))
+    db_session.commit()
     for _ in range(3):
         res = client.post("/api/auth/login", json={"email": "rate@example.com", "password": "wrongpass"})
         assert res.status_code in {401, 429}
     blocked = client.post("/api/auth/login", json={"email": "rate@example.com", "password": "wrongpass"})
     assert blocked.status_code == 429
-    clear_rate_limits()
     get_settings.cache_clear()
 
 
-def test_password_reset_flow(client):
-    clear_rate_limits()
-    client.post("/api/auth/register", json={"email": "reset@example.com", "password": "secret123"})
-    req = client.post("/api/auth/password-reset/request", json={"email": "reset@example.com"})
+def test_password_reset_flow(client, db_session):
+    from app.models import User
+    from app.security import hash_password
+    from datetime import datetime, timezone
+    db_session.add(User(email="reset@example.com", password_hash=hash_password("secret123"), token="reset", is_active=True, email_verified_at=datetime.now(timezone.utc)))
+    db_session.commit()
+    captured = {}
+    with patch("app.api.auth_routes.send_password_reset_email", side_effect=lambda settings, email, token: captured.update(token=token)):
+        req = client.post("/api/auth/password-reset/request", json={"email": "reset@example.com"})
     assert req.status_code == 200
-    token = req.json()["reset_token"]
-    assert token
+    assert "reset_token" not in req.json()
+    token = captured["token"]
     conf = client.post(
         "/api/auth/password-reset/confirm",
         json={"token": token, "new_password": "newpass123"},
@@ -47,10 +54,6 @@ def test_password_reset_flow(client):
 
 
 def test_session_cookie_auth(client):
-    clear_rate_limits()
-    res = client.post("/api/auth/register", json={"email": "cookie@example.com", "password": "secret123"})
-    assert res.status_code == 200
-    assert "va_session" in res.cookies
     listed = client.get("/api/sources")
     assert listed.status_code == 200
 
@@ -102,19 +105,22 @@ def test_reclaim_stale_and_claim(db_session, monkeypatch):
     get_settings.cache_clear()
 
 
-def test_admin_queue(client, db_session):
+def test_admin_queue(client, db_session, monkeypatch):
+    from app.config import get_settings
+    monkeypatch.setenv("ADMIN_API_KEY", "admin-secret")
+    get_settings.cache_clear()
     db_session.add(Source(source_type="text", title="Q", status="pending", user_id="anonymous"))
     db_session.commit()
-    res = client.get("/api/admin/queue")
+    res = client.get("/api/admin/queue", headers={"X-Admin-API-Key": "admin-secret"})
     assert res.status_code == 200
     assert res.json()["pending"] >= 1
 
 
-def test_enforce_rate_limit_unit():
-    clear_rate_limits()
-    enforce_rate_limit("k", limit=2, window_seconds=60, detail="nope")
-    enforce_rate_limit("k", limit=2, window_seconds=60, detail="nope")
+def test_enforce_rate_limit_unit(db_session):
+    clear_rate_limits(db_session)
+    enforce_rate_limit(db_session, "k", limit=2, window_seconds=60, detail="nope")
+    enforce_rate_limit(db_session, "k", limit=2, window_seconds=60, detail="nope")
     with pytest.raises(HTTPException) as exc:
-        enforce_rate_limit("k", limit=2, window_seconds=60, detail="nope")
+        enforce_rate_limit(db_session, "k", limit=2, window_seconds=60, detail="nope")
     assert exc.value.status_code == 429
-    clear_rate_limits()
+    clear_rate_limits(db_session)

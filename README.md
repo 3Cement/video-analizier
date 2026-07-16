@@ -14,12 +14,12 @@ Działa też z PDF / tekstem / audio.
 
 ```bash
 cp .env.example .env
-# opcjonalnie: LLM_PROVIDER + OPENAI/ANTHROPIC/CURSOR key, YTDLP_PROXY
+# ustaw PostgreSQL, Resend, Turnstile, domenę i jeden serwerowy klucz LLM
 docker compose up --build
 ```
 
 UI: http://localhost:8000  
-Deploy: patrz [DEPLOY.md](DEPLOY.md) (Render / VPS).
+Deploy produkcyjny: patrz [DEPLOY.md](DEPLOY.md) (VPS + PostgreSQL + worker + Caddy).
 
 ### Dev bez Dockera
 
@@ -30,6 +30,7 @@ pip install -r requirements.txt
 pip install -e .
 cp .env.example .env
 mkdir -p data/media
+alembic upgrade head
 PYTHONPATH=backend uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
@@ -59,6 +60,12 @@ PYTHONPATH=backend python -m app analyze "https://www.youtube.com/watch?v=VIDEO_
 | `WHISPER_MODEL` | `tiny`/`base`/`small`/`medium`/`large-v3` (dla PL produkcyjnie ≥ `small`) |
 | `WHISPER_DEVICE` | `cpu` lub `cuda` |
 | `WHISPER_LANGUAGE` | domyślnie `pl` |
+| `DATABASE_URL` | PostgreSQL używany przez API i workera |
+| `RESEND_API_KEY` / `RESEND_FROM_EMAIL` | e-maile weryfikacji i resetu |
+| `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | ochrona otwartej rejestracji |
+| `ADMIN_API_KEY` | osobny klucz endpointów administracyjnych |
+
+Konto musi zostać potwierdzone e-mailem. Sesja działa wyłącznie przez cookie HttpOnly; klucze LLM są wspólne, serwerowe i nie są ustawiane w przeglądarce.
 
 ## Testy
 

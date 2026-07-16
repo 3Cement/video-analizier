@@ -6,7 +6,6 @@ from typing import Optional
 from app.chunking import format_timestamp, segments_to_transcript
 from app.config import Settings, get_settings
 from app.llm.client import chat_completion, has_llm_credentials
-from app.llm_settings_store import apply_llm_overrides
 from app.schemas import Citation
 
 SYSTEM_PROMPT = """You are a source-grounded Q&A assistant.
@@ -191,7 +190,7 @@ def answer_question(
     title: str = "",
     settings: Optional[Settings] = None,
 ) -> tuple[str, list[Citation]]:
-    settings = apply_llm_overrides(settings or get_settings())
+    settings = settings or get_settings()
     if not segments:
         return "Brak zaindeksowanego źródła do odpowiedzi.", []
 

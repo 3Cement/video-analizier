@@ -3,5 +3,14 @@
 # Gdy DOMAIN jest pusty, nasłuchuje na :80 (HTTP po adresie IP).
 {$DOMAIN::80} {
 	encode gzip
+	request_body {
+		max_size 100MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
 	reverse_proxy api:8000
 }

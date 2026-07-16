@@ -1,25 +1,33 @@
 from __future__ import annotations
 
-import time
-from collections import defaultdict, deque
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
+from sqlalchemy import delete, func, select
+from sqlalchemy.orm import Session
+
+from app.models import RateLimitEvent
 
 
-_buckets: dict[str, deque[float]] = defaultdict(deque)
-
-
-def enforce_rate_limit(key: str, *, limit: int, window_seconds: int, detail: str) -> None:
+def enforce_rate_limit(
+    db: Session, key: str, *, limit: int, window_seconds: int, detail: str
+) -> None:
+    """Persist rate-limit events so limits survive restarts and work across API replicas."""
     if limit <= 0:
         return
-    now = time.time()
-    bucket = _buckets[key]
-    while bucket and bucket[0] <= now - window_seconds:
-        bucket.popleft()
-    if len(bucket) >= limit:
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
+    count = db.scalar(
+        select(func.count()).select_from(RateLimitEvent).where(
+            RateLimitEvent.bucket == key, RateLimitEvent.created_at >= cutoff
+        )
+    ) or 0
+    if count >= limit:
         raise HTTPException(status_code=429, detail=detail)
-    bucket.append(now)
+    db.add(RateLimitEvent(bucket=key))
+    db.commit()
 
 
-def clear_rate_limits() -> None:
-    _buckets.clear()
+def clear_rate_limits(db: Session | None = None) -> None:
+    if db is not None:
+        db.execute(delete(RateLimitEvent))
+        db.commit()

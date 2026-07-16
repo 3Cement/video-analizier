@@ -18,7 +18,7 @@ def test_create_podcast_endpoint(client):
     with patch("app.api.routes.run_in_background") as bg:
         res = client.post(
             "/api/sources/podcast",
-            json={"url": "https://cdn.example.com/ep.mp3", "auto_summarize": False},
+            json={"url": "https://example.com/ep.mp3", "auto_summarize": False},
         )
         assert res.status_code == 200, res.text
         assert res.json()["source_type"] == "podcast"

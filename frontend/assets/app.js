@@ -25,11 +25,6 @@ const el = {
   retryBtn: document.getElementById("retry-btn"),
   forceAsrBtn: document.getElementById("force-asr-btn"),
   deleteBtn: document.getElementById("delete-btn"),
-  llmToggle: document.getElementById("llm-toggle"),
-  llmSettings: document.getElementById("llm-settings"),
-  llmForm: document.getElementById("llm-form"),
-  llmProvider: document.getElementById("llm-provider"),
-  llmStatusLine: document.getElementById("llm-status-line"),
   shareBtn: document.getElementById("share-btn"),
   extractFactsBtn: document.getElementById("extract-facts-btn"),
   summarizeBtn: document.getElementById("summarize-btn"),
@@ -132,17 +127,10 @@ function renderMarkdown(text, videoUrl = "") {
   return out.join("");
 }
 
-function authHeaders() {
-  const token = localStorage.getItem("va_token");
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+function authHeaders() { return {}; }
 
 async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
-  const auth = authHeaders();
-  Object.entries(auth).forEach(([k, v]) => {
-    if (!headers.has(k)) headers.set(k, v);
-  });
   options = { ...options, headers, credentials: "same-origin" };
   const res = await fetch(`/api${path}`, options);
   if (!res.ok) {
@@ -558,83 +546,10 @@ document.getElementById("refresh-btn").addEventListener("click", () => {
   refreshSources().catch((e) => setStatus(e.message));
 });
 
-function syncProviderFields() {
-  const provider = el.llmProvider.value;
-  document.querySelectorAll(".provider-fields").forEach((block) => {
-    block.hidden = block.dataset.provider !== provider;
-  });
-}
-
-async function loadLlmStatus() {
-  const status = await api("/llm/status");
-  el.llmProvider.value = status.provider || "openai";
-  document.getElementById("openai-model").value = status.models?.openai || "";
-  document.getElementById("anthropic-model").value = status.models?.anthropic || "";
-  document.getElementById("cursor-model").value = status.models?.cursor || "";
-  document.getElementById("cursor-base-url").value = status.base_urls?.cursor || "";
-  syncProviderFields();
-  const flags = status.configured || {};
-  const labels = [
-    flags.openai ? "OpenAI ✓" : "OpenAI —",
-    flags.anthropic ? "Anthropic ✓" : "Anthropic —",
-    flags.cursor ? "Cursor ✓" : "Cursor —",
-  ];
-  el.llmStatusLine.textContent = `Aktywny: ${status.provider}. ${labels.join(" · ")}. Klucze nie są pokazywane po zapisaniu.`;
-}
-
-el.llmToggle.addEventListener("click", () => {
-  el.llmSettings.open = !el.llmSettings.open;
-});
-
-el.llmProvider.addEventListener("change", syncProviderFields);
-
-el.llmForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const provider = el.llmProvider.value;
-  const payload = { llm_provider: provider };
-  if (provider === "openai") {
-    const key = document.getElementById("openai-api-key").value.trim();
-    const model = document.getElementById("openai-model").value.trim();
-    if (key) payload.openai_api_key = key;
-    if (model) payload.openai_model = model;
-  } else if (provider === "anthropic") {
-    const key = document.getElementById("anthropic-api-key").value.trim();
-    const model = document.getElementById("anthropic-model").value.trim();
-    if (key) payload.anthropic_api_key = key;
-    if (model) payload.anthropic_model = model;
-  } else {
-    const key = document.getElementById("cursor-api-key").value.trim();
-    const model = document.getElementById("cursor-model").value.trim();
-    const base = document.getElementById("cursor-base-url").value.trim();
-    if (key) payload.cursor_api_key = key;
-    if (model) payload.cursor_model = model;
-    if (base) payload.cursor_base_url = base;
-  }
-  try {
-    await api("/llm/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    document.getElementById("openai-api-key").value = "";
-    document.getElementById("anthropic-api-key").value = "";
-    document.getElementById("cursor-api-key").value = "";
-    await loadLlmStatus();
-    setStatus(`Zapisano ustawienia LLM (${provider}).`);
-  } catch (err) {
-    setStatus(err.message);
-  }
-});
-
-
 async function loadQuota() {
   try {
     const q = await api("/quota");
-    if (!q.limit || q.limit <= 0) {
-      el.quotaLine.textContent = `Dziś: ${q.used} analiz (bez limitu).`;
-    } else {
-      el.quotaLine.textContent = `Limit dzienny: ${q.used}/${q.limit} (pozostało ${q.remaining}).`;
-    }
+    el.quotaLine.textContent = `Źródła: ${q.sources.used}/${q.sources.limit} · pytania: ${q.questions.used}/${q.questions.limit}`;
   } catch (_) {
     el.quotaLine.textContent = "";
   }
@@ -694,7 +609,6 @@ document.getElementById("playlist-form").addEventListener("submit", async (e) =>
 });
 
 refreshSources()
-  .then(() => loadLlmStatus())
   .then(() => loadQuota())
   .then(() => {
     const ready = state.sources.find((s) => s.status === "ready");
@@ -819,8 +733,6 @@ document.getElementById("auth-form")?.addEventListener("submit", async (e) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
-    localStorage.setItem("va_token", data.token);
-    localStorage.setItem("va_email", data.email);
     document.getElementById("auth-status").textContent = `Zalogowano: ${data.email}`;
     document.getElementById("auth-summary").textContent = `Konto: ${data.email}`;
     await refreshSources();
@@ -834,16 +746,14 @@ document.getElementById("auth-register")?.addEventListener("click", async () => 
   const email = document.getElementById("auth-email").value.trim();
   const password = document.getElementById("auth-password").value;
   try {
-    const data = await api("/auth/register", {
+    const turnstileToken = window.turnstile?.getResponse() || "";
+    await api("/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, turnstile_token: turnstileToken }),
     });
-    localStorage.setItem("va_token", data.token);
-    localStorage.setItem("va_email", data.email);
-    document.getElementById("auth-status").textContent = `Konto utworzone: ${data.email}`;
-    document.getElementById("auth-summary").textContent = `Konto: ${data.email}`;
-    await refreshSources();
+    document.getElementById("auth-status").textContent = "Sprawdź skrzynkę i potwierdź adres e-mail.";
+    window.turnstile?.reset();
   } catch (err) {
     document.getElementById("auth-status").textContent = err.message;
   }
@@ -855,11 +765,10 @@ document.getElementById("auth-logout")?.addEventListener("click", async () => {
   } catch (_) {
     /* ignore */
   }
-  localStorage.removeItem("va_token");
-  localStorage.removeItem("va_email");
   document.getElementById("auth-status").textContent = "Wylogowano.";
-  document.getElementById("auth-summary").textContent = "Konto (opcjonalne)";
-  await refreshSources();
+  document.getElementById("auth-summary").textContent = "Konto";
+  state.sources = [];
+  renderSourceList();
 });
 
 document.getElementById("search-form")?.addEventListener("submit", async (e) => {
@@ -982,33 +891,32 @@ document.getElementById("export-docx-btn")?.addEventListener("click", async () =
   a.click();
 });
 
-const email = localStorage.getItem("va_email");
-if (email) {
-  const summary = document.getElementById("auth-summary");
-  const status = document.getElementById("auth-status");
-  if (summary) summary.textContent = `Konto: ${email}`;
-  if (status) status.textContent = `Zalogowano: ${email}`;
-}
-loadCollections();
+api("/auth/me").then((me) => {
+  document.getElementById("auth-summary").textContent = `Konto: ${me.email}`;
+  document.getElementById("auth-status").textContent = `Zalogowano: ${me.email}`;
+  return loadCollections();
+}).catch(() => {});
+
+api("/auth/config").then((config) => {
+  if (!config.turnstile_site_key) return;
+  const render = () => {
+    if (window.turnstile) window.turnstile.render("#turnstile-widget", { sitekey: config.turnstile_site_key });
+    else window.setTimeout(render, 100);
+  };
+  render();
+}).catch(() => {});
 
 
 document.getElementById("password-reset-request")?.addEventListener("click", async () => {
   const email = document.getElementById("auth-email").value.trim();
   const status = document.getElementById("auth-status");
   try {
-    const data = await api("/auth/password-reset/request", {
+    await api("/auth/password-reset/request", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email }),
     });
-    if (data.reset_link) {
-      status.textContent = `Link resetu (MVP): ${data.reset_link}`;
-      if (data.reset_token) {
-        document.getElementById("reset-token").value = data.reset_token;
-      }
-    } else {
-      status.textContent = "Jeśli konto istnieje, wyślemy instrukcję resetu.";
-    }
+    status.textContent = "Jeśli konto istnieje, wyślemy instrukcję resetu.";
   } catch (err) {
     status.textContent = err.message;
   }
@@ -1025,8 +933,6 @@ document.getElementById("password-reset-form")?.addEventListener("submit", async
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token, new_password: newPassword }),
     });
-    localStorage.setItem("va_token", data.token);
-    localStorage.setItem("va_email", data.email);
     status.textContent = `Hasło zmienione. Zalogowano: ${data.email}`;
     document.getElementById("auth-summary").textContent = `Konto: ${data.email}`;
     await refreshSources();
