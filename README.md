@@ -52,11 +52,12 @@ PYTHONPATH=backend python -m app analyze "https://www.youtube.com/watch?v=VIDEO_
 
 | Zmienna | Opis |
 |---------|------|
-| `LLM_PROVIDER` | `openai` / `anthropic` / `cursor` |
+| `LLM_PROVIDER` | `openai` / `anthropic` / `openrouter` (`cursor` tylko jako stary alias) |
 | `OPENAI_API_KEY` | Klucz OpenAI |
 | `ANTHROPIC_API_KEY` | Klucz Anthropic |
-| `CURSOR_API_KEY` | Klucz OpenAI-compatible (jak w Cursor BYOK) |
-| `OPENAI_MODEL` / `ANTHROPIC_MODEL` / `CURSOR_MODEL` | modele per provider |
+| `OPENROUTER_API_KEY` | Klucz OpenRouter; nie trafia do UI ani Vercela |
+| `OPENAI_MODEL` / `ANTHROPIC_MODEL` / `OPENROUTER_MODEL` | modele per provider |
+| `SINGLE_USER_EMAIL` | Jedyny adres, dla którego rejestracja jest otwarta w produkcji |
 | `WHISPER_MODEL` | `tiny`/`base`/`small`/`medium`/`large-v3` (dla PL produkcyjnie ≥ `small`) |
 | `WHISPER_DEVICE` | `cpu` lub `cuda` |
 | `WHISPER_LANGUAGE` | domyślnie `pl` |

@@ -11,7 +11,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    llm_provider: str = "openai"  # openai | anthropic | cursor
+    llm_provider: str = "openai"  # openai | anthropic | openrouter (cursor is a legacy alias)
 
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     anthropic_base_url: str = "https://api.anthropic.com"
     anthropic_model: str = "claude-sonnet-4-20250514"
 
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_model: str = "google/gemini-3.1-flash-lite"
+
+    # Kept only so existing installations using LLM_PROVIDER=cursor keep working.
     cursor_api_key: str = ""
     cursor_base_url: str = "https://api.openai.com/v1"
     cursor_model: str = "gpt-4o-mini"
@@ -74,6 +79,7 @@ class Settings(BaseSettings):
     captions_first: bool = False
     max_summary_chunks: int = 6
     public_base_url: str = ""
+    single_user_email: str = ""
 
     @property
     def allowed_origin_list(self) -> list[str]:
@@ -100,11 +106,12 @@ class Settings(BaseSettings):
             "RESEND_FROM_EMAIL": self.resend_from_email,
             "TURNSTILE_SITE_KEY": self.turnstile_site_key,
             "TURNSTILE_SECRET_KEY": self.turnstile_secret_key,
+            "SINGLE_USER_EMAIL": self.single_user_email,
         }
         missing = [name for name, value in required.items() if not str(value).strip()]
         if missing:
             raise RuntimeError(f"Missing required production settings: {', '.join(missing)}")
-        if not any((self.openai_api_key, self.anthropic_api_key, self.cursor_api_key)):
+        if not any((self.openai_api_key, self.anthropic_api_key, self.openrouter_api_key, self.cursor_api_key)):
             raise RuntimeError("At least one server-side LLM API key is required")
 
 

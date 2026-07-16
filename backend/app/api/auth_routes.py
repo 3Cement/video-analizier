@@ -57,9 +57,11 @@ def register(payload: AuthRegisterRequest, request: Request, db: Session = Depen
     enforce_rate_limit(db, f"register:{ip}", limit=settings.register_rate_limit,
                        window_seconds=settings.register_rate_window_seconds,
                        detail="Too many registration attempts. Try again later.")
+    email = payload.email.strip().lower()
+    if settings.single_user_email.strip().lower() != email:
+        raise HTTPException(status_code=403, detail="Registration is closed")
     if not verify_turnstile(settings, payload.turnstile_token, ip):
         raise HTTPException(status_code=400, detail="Turnstile verification failed")
-    email = payload.email.strip().lower()
     if db.scalar(select(User).where(User.email == email)) is not None:
         raise HTTPException(status_code=400, detail="Email already registered")
     user = User(email=email, password_hash=hash_password(payload.password), token=new_api_token(), is_active=False)

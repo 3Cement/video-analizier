@@ -37,6 +37,7 @@ def test_csrf_rejects_missing_and_foreign_origin_in_production(client):
 
 
 def test_verification_token_is_one_time(client):
+    get_settings().single_user_email = "once@example.com"
     captured = {}
     with patch("app.api.auth_routes.verify_turnstile", return_value=True), patch(
         "app.api.auth_routes.send_verification_email", side_effect=lambda settings, email, token: captured.update(token=token)
@@ -45,6 +46,32 @@ def test_verification_token_is_one_time(client):
     token = captured["token"]
     assert client.get("/api/auth/verify", params={"token": token}).status_code == 200
     assert client.get("/api/auth/verify", params={"token": token}).status_code == 400
+
+
+def test_registration_is_limited_to_configured_email(client):
+    settings = get_settings()
+    settings.single_user_email = "Owner@Example.com"
+    with patch("app.api.auth_routes.verify_turnstile") as turnstile:
+        response = client.post(
+            "/api/auth/register",
+            json={"email": "other@example.com", "password": "secret123", "turnstile_token": "unused"},
+        )
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Registration is closed"}
+    turnstile.assert_not_called()
+
+
+def test_single_user_email_comparison_is_normalized(client):
+    settings = get_settings()
+    settings.single_user_email = " Owner@Example.com "
+    with patch("app.api.auth_routes.verify_turnstile", return_value=True), patch(
+        "app.api.auth_routes.send_verification_email"
+    ):
+        response = client.post(
+            "/api/auth/register",
+            json={"email": "owner@example.com", "password": "secret123", "turnstile_token": "ok"},
+        )
+    assert response.status_code == 200
 
 
 def test_expired_reset_token_is_rejected(client, db_session):

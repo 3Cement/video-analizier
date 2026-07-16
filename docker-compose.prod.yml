@@ -31,6 +31,7 @@ services:
       AUTH_REQUIRED: "true"
       COOKIE_SECURE: "true"
       TRUSTED_PROXY_IPS: 172.28.0.4
+      SINGLE_USER_EMAIL: ${SINGLE_USER_EMAIL:?SINGLE_USER_EMAIL is required}
     depends_on:
       postgres:
         condition: service_healthy

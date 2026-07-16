@@ -14,6 +14,9 @@ def test_password_hash_roundtrip():
 
 
 def test_register_verify_login_and_search(client, db_session):
+    from app.config import get_settings
+
+    get_settings().single_user_email = "a@example.com"
     sent = {}
     with patch("app.api.auth_routes.verify_turnstile", return_value=True), patch(
         "app.api.auth_routes.send_verification_email",

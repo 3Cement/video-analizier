@@ -8,6 +8,7 @@ from app.llm_settings_store import apply_llm_overrides
 def test_has_llm_credentials_per_provider():
     assert has_llm_credentials(Settings(llm_provider="openai", openai_api_key="k"))
     assert has_llm_credentials(Settings(llm_provider="anthropic", anthropic_api_key="k"))
+    assert has_llm_credentials(Settings(llm_provider="openrouter", openrouter_api_key="k"))
     assert has_llm_credentials(Settings(llm_provider="cursor", cursor_api_key="k"))
     assert not has_llm_credentials(Settings(llm_provider="anthropic", openai_api_key="k"))
 
@@ -38,21 +39,40 @@ def test_anthropic_chat_completion():
     assert kwargs["headers"]["x-api-key"] == "ant-key"
 
 
-def test_cursor_uses_openai_compatible(monkeypatch):
+def test_openrouter_uses_openai_compatible():
     settings = Settings(
-        llm_provider="cursor",
-        cursor_api_key="cursor-key",
-        cursor_base_url="https://example.com/v1",
-        cursor_model="gpt-test",
+        llm_provider="openrouter",
+        openrouter_api_key="openrouter-key",
+        openrouter_base_url="https://openrouter.example/v1",
+        openrouter_model="google/gemini-test",
     )
     fake_client = MagicMock()
     fake_client.chat.completions.create.return_value = MagicMock(
-        choices=[MagicMock(message=MagicMock(content="Cursor reply"))]
+        choices=[MagicMock(message=MagicMock(content="OpenRouter reply"))]
     )
     with patch("app.llm.client.OpenAI", return_value=fake_client) as openai_cls:
         out = chat_completion("sys", "user", settings=settings)
-    assert out == "Cursor reply"
-    openai_cls.assert_called_once_with(api_key="cursor-key", base_url="https://example.com/v1")
+    assert out == "OpenRouter reply"
+    openai_cls.assert_called_once_with(api_key="openrouter-key", base_url="https://openrouter.example/v1")
+    assert fake_client.chat.completions.create.call_args.kwargs["model"] == "google/gemini-test"
+
+
+def test_cursor_is_a_legacy_alias_for_openrouter():
+    settings = Settings(
+        llm_provider="cursor",
+        cursor_api_key="legacy-key",
+        cursor_base_url="https://legacy.example/v1",
+        cursor_model="legacy-model",
+    )
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.return_value = MagicMock(
+        choices=[MagicMock(message=MagicMock(content="Legacy reply"))]
+    )
+    with patch("app.llm.client.OpenAI", return_value=fake_client) as openai_cls:
+        out = chat_completion("sys", "user", settings=settings)
+    assert out == "Legacy reply"
+    openai_cls.assert_called_once_with(api_key="legacy-key", base_url="https://legacy.example/v1")
+    assert fake_client.chat.completions.create.call_args.kwargs["model"] == "legacy-model"
 
 
 def test_llm_settings_are_read_only(client, db_session, tmp_path, monkeypatch):
@@ -65,7 +85,7 @@ def test_llm_settings_are_read_only(client, db_session, tmp_path, monkeypatch):
 
     status = client.get("/api/llm/status")
     assert status.status_code == 200
-    assert status.json()["provider"] in {"openai", "anthropic", "cursor"}
+    assert status.json()["provider"] in {"openai", "anthropic", "openrouter"}
 
     saved = client.put(
         "/api/llm/settings",

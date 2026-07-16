@@ -8,6 +8,8 @@ from app.worker import claim_next_pending, reclaim_stale_jobs
 from fastapi import HTTPException
 import pytest
 
+from app.config import Settings
+
 
 def test_login_rate_limit(client, db_session, monkeypatch):
     from app.config import get_settings
@@ -124,3 +126,23 @@ def test_enforce_rate_limit_unit(db_session):
         enforce_rate_limit(db_session, "k", limit=2, window_seconds=60, detail="nope")
     assert exc.value.status_code == 429
     clear_rate_limits(db_session)
+
+
+def test_single_user_email_is_required_in_production():
+    settings = Settings(
+        auth_required=True,
+        public_base_url="https://project.vercel.app",
+        admin_api_key="admin",
+        resend_api_key="resend",
+        resend_from_email="onboarding@resend.dev",
+        turnstile_site_key="site",
+        turnstile_secret_key="secret",
+        openrouter_api_key="openrouter",
+        single_user_email="",
+    )
+
+    with pytest.raises(RuntimeError, match="SINGLE_USER_EMAIL"):
+        settings.validate_production()
+
+    settings.single_user_email = "owner@example.com"
+    settings.validate_production()
