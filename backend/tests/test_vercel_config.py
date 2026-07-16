@@ -7,6 +7,7 @@ def test_vercel_rewrites_every_path_to_vps_without_cache():
 
     assert config["framework"] is None
     assert config["rewrites"] == [
+        {"source": "/", "destination": "http://57.131.51.89/"},
         {"source": "/:path*", "destination": "http://57.131.51.89/:path*"}
     ]
     assert config["headers"] == [

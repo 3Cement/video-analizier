@@ -11,6 +11,7 @@
     }
   ],
   "rewrites": [
+    { "source": "/", "destination": "http://57.131.51.89/" },
     { "source": "/:path*", "destination": "http://57.131.51.89/:path*" }
   ]
 }
