@@ -22,7 +22,8 @@ def test_compose_runs_a_bounded_local_ollama_model():
     assert 'command: ["pull", "${OLLAMA_MODEL:-qwen3:4b-instruct}"]' in compose
     assert "OLLAMA_BASE_URL: http://ollama:11434/v1" in compose
     assert 'JOB_MAX_WORKERS: "1"' in compose
-    assert "mem_limit: 4g" in compose
+    assert 'OLLAMA_CONTEXT_LENGTH: "8192"' in compose
+    assert "mem_limit: 5g" in compose
     assert "LLM_PROVIDER=ollama" in env_example
     assert "OLLAMA_MODEL=qwen3:4b-instruct" in env_example
 
