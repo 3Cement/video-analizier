@@ -47,17 +47,57 @@ domyślnie 8000.
    - `YTDLP_PROXY` — jeśli YouTube blokuje IP datacenter
 4. Disk `/app/data` (już w `render.yaml`).
 
-## VPS (Docker)
+## VPS (Docker) — zalecana produkcja
+
+Stack produkcyjny (`docker-compose.prod.yml`): api + worker + Caddy
+(automatyczny certyfikat HTTPS z Let's Encrypt, gdy podasz domenę).
+
+### 1. Instalacja (raz)
 
 ```bash
-git clone <repo>
+# na VPS (Ubuntu/Debian); pomiń jeśli Docker już jest
+curl -fsSL https://get.docker.com | sh
+
+git clone https://github.com/3Cement/video-analizier.git
 cd video-analizier
 cp .env.example .env
-nano .env
-docker compose up -d --build
+nano .env   # patrz sekcja "Co ustawić w .env" niżej
 ```
 
-Opcjonalnie nginx + HTTPS (Caddy/Certbot) na port 8000.
+### 2. Start
+
+```bash
+# z domeną (najpierw ustaw rekord DNS A -> IP VPS-a):
+DOMAIN=app.twoja-domena.pl docker compose -f docker-compose.prod.yml up -d --build
+
+# bez domeny (HTTP na porcie 80, wejście po IP):
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+UI: `https://app.twoja-domena.pl` (albo `http://IP-VPS-a`).
+
+### 3. Utrzymanie
+
+```bash
+docker compose -f docker-compose.prod.yml logs -f          # logi
+docker compose -f docker-compose.prod.yml ps               # status
+git pull && DOMAIN=... docker compose -f docker-compose.prod.yml up -d --build  # update
+```
+
+Dane (baza SQLite + audio) żyją w `./data` na hoście — przeżywają
+rebuild/restart. Backup: `tar czf backup.tar.gz data/`.
+
+### Ważne na publicznym VPS
+
+- **Dostęp**: bez `API_KEY` w `.env` aplikacja jest otwarta dla każdego, kto
+  zna adres (a analizy zużywają Twój klucz LLM). Ustaw `API_KEY` albo chociaż
+  niski `DAILY_SOURCE_LIMIT`.
+- **YouTube bot-check**: IP VPS-a to IP datacenter — YouTube może wymagać
+  `YTDLP_COOKIES` (wyeksportuj cookies z przeglądarki rozszerzeniem
+  „Get cookies.txt") lub `YTDLP_PROXY` (proxy residential).
+- **RAM**: Whisper `small` potrzebuje ~2 GB RAM. Na małym VPS ustaw
+  `WHISPER_MODEL=base` (szybciej, trochę gorsza jakość PL) albo dodaj swap.
+- `PUBLIC_BASE_URL=https://app.twoja-domena.pl` — poprawne linki „Udostępnij".
 
 ## Co ustawić w `.env`
 
