@@ -16,6 +16,28 @@ docker compose up --build
 UI: http://localhost:8000  
 Ustaw `PUBLIC_BASE_URL=https://twoja-domena` dla poprawnych OG/canonical na stronach `/s/...`.
 
+## Railway.app (Docker, „podepnij GitHub i klikaj")
+
+1. Wejdź na https://railway.app → **New Project** → **Deploy from GitHub repo**.
+2. Wybierz repo `video-analizier` — Railway sam wykryje `Dockerfile` i `railway.json`.
+3. W ustawieniach serwisu → **Variables** dodaj (opcjonalnie):
+   - `LLM_PROVIDER` + `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` — lepsze podsumowania
+   - `YTDLP_PROXY` — jeśli YouTube blokuje IP datacenter
+   - `WHISPER_MODEL=small` (domyślne w `.env.example` może być za duże na mały plan)
+4. W ustawieniach serwisu → **Volumes** podepnij wolumen pod `/app/data`
+   (żeby baza i pliki przetrwały redeploy).
+5. **Settings → Networking → Generate Domain** — dostajesz publiczny URL.
+
+Kontener nasłuchuje na porcie z `PORT` (wstrzykiwany przez Railway); lokalnie
+domyślnie 8000.
+
+## Koyeb.com (Docker, darmowy tier)
+
+1. https://app.koyeb.com → **Create Web Service** → **GitHub** → wybierz repo.
+2. Builder: **Dockerfile**; health check: `/api/health` (port 8000).
+3. Env vars jak wyżej. Uwaga: darmowy tier nie ma trwałego dysku —
+   baza wyczyści się przy redeployu.
+
 ## Render.com (Docker)
 
 1. Połącz repo z Render.
