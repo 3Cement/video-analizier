@@ -57,7 +57,6 @@
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "PLN" }
       }
     </script>
-    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
   </head>
   <body>
     <div class="atmosphere" aria-hidden="true"></div>
@@ -174,13 +173,13 @@
             <div id="turnstile-widget"></div>
             <div class="row-between">
               <button type="submit" data-mode="login">Zaloguj</button>
-              <button type="button" id="auth-register" class="ghost">Zarejestruj</button>
-              <button type="button" id="password-reset-request" class="ghost">Reset hasła</button>
+              <button type="button" id="auth-register" class="ghost" hidden>Zarejestruj</button>
+              <button type="button" id="password-reset-request" class="ghost" hidden>Reset hasła</button>
               <button type="button" id="auth-logout" class="ghost">Wyloguj</button>
             </div>
             <p id="auth-status" class="muted"></p>
           </form>
-          <form id="password-reset-form" class="form auth-form">
+          <form id="password-reset-form" class="form auth-form" hidden>
             <label>Token resetu <input id="reset-token" type="text" /></label>
             <label>Nowe hasło <input id="reset-password" type="password" minlength="6" required /></label>
             <button type="submit">Ustaw nowe hasło</button>

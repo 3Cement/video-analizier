@@ -66,7 +66,7 @@ PYTHONPATH=backend python -m app analyze "https://www.youtube.com/watch?v=VIDEO_
 | `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | ochrona otwartej rejestracji |
 | `ADMIN_API_KEY` | osobny klucz endpointów administracyjnych |
 
-Konto musi zostać potwierdzone e-mailem. Sesja działa wyłącznie przez cookie HttpOnly; klucze LLM są wspólne, serwerowe i nie są ustawiane w przeglądarce.
+W prywatnym pilocie konto jest provisionowane ręcznie przez `python -m app provision-user`, a samodzielna rejestracja pozostaje wyłączona. Po późniejszym włączeniu rejestracji konto musi zostać potwierdzone e-mailem. Sesja działa wyłącznie przez cookie HttpOnly; klucze LLM są wspólne, serwerowe i nie są ustawiane w przeglądarce.
 
 ## Testy
 

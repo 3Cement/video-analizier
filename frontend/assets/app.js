@@ -898,12 +898,23 @@ api("/auth/me").then((me) => {
 }).catch(() => {});
 
 api("/auth/config").then((config) => {
-  if (!config.turnstile_site_key) return;
+  const registerButton = document.getElementById("auth-register");
+  const resetButton = document.getElementById("password-reset-request");
+  const resetForm = document.getElementById("password-reset-form");
+  if (registerButton) registerButton.hidden = !config.registration_enabled;
+  if (resetButton) resetButton.hidden = !config.password_reset_enabled;
+  if (resetForm) resetForm.hidden = !config.password_reset_enabled;
+  if (!config.registration_enabled || !config.turnstile_site_key) return;
   const render = () => {
     if (window.turnstile) window.turnstile.render("#turnstile-widget", { sitekey: config.turnstile_site_key });
     else window.setTimeout(render, 100);
   };
-  render();
+  const script = document.createElement("script");
+  script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+  script.async = true;
+  script.defer = true;
+  script.addEventListener("load", render);
+  document.head.appendChild(script);
 }).catch(() => {});
 
 

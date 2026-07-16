@@ -32,11 +32,15 @@ def test_login_rate_limit(client, db_session, monkeypatch):
 
 
 def test_password_reset_flow(client, db_session):
+    from app.config import get_settings
     from app.models import User
     from app.security import hash_password
     from datetime import datetime, timezone
     db_session.add(User(email="reset@example.com", password_hash=hash_password("secret123"), token="reset", is_active=True, email_verified_at=datetime.now(timezone.utc)))
     db_session.commit()
+    settings = get_settings()
+    settings.resend_api_key = "test-resend-key"
+    settings.resend_from_email = "sender@example.com"
     captured = {}
     with patch("app.api.auth_routes.send_password_reset_email", side_effect=lambda settings, email, token: captured.update(token=token)):
         req = client.post("/api/auth/password-reset/request", json={"email": "reset@example.com"})
@@ -145,4 +149,21 @@ def test_single_user_email_is_required_in_production():
         settings.validate_production()
 
     settings.single_user_email = "owner@example.com"
+    settings.validate_production()
+
+
+def test_email_services_are_optional_when_self_registration_is_disabled():
+    settings = Settings(
+        auth_required=True,
+        self_registration_enabled=False,
+        public_base_url="https://video-analizier.vercel.app",
+        admin_api_key="admin",
+        single_user_email="owner@example.com",
+        openrouter_api_key="openrouter",
+        resend_api_key="",
+        resend_from_email="",
+        turnstile_site_key="",
+        turnstile_secret_key="",
+    )
+
     settings.validate_production()

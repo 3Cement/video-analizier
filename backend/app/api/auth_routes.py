@@ -23,8 +23,14 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.get("/config")
-def auth_config() -> dict[str, str]:
-    return {"turnstile_site_key": get_settings().turnstile_site_key}
+def auth_config() -> dict[str, str | bool]:
+    settings = get_settings()
+    password_reset_enabled = bool(settings.resend_api_key.strip() and settings.resend_from_email.strip())
+    return {
+        "turnstile_site_key": settings.turnstile_site_key if settings.self_registration_enabled else "",
+        "registration_enabled": settings.self_registration_enabled,
+        "password_reset_enabled": password_reset_enabled,
+    }
 
 
 def _set_session_cookie(response: Response, token: str) -> None:
@@ -53,6 +59,8 @@ def _not_expired(value: datetime | None) -> bool:
 @router.post("/register", response_model=RegisterOut)
 def register(payload: AuthRegisterRequest, request: Request, db: Session = Depends(get_db)) -> RegisterOut:
     settings = get_settings()
+    if not settings.self_registration_enabled:
+        raise HTTPException(status_code=403, detail="Registration is closed")
     ip = client_ip(request)
     enforce_rate_limit(db, f"register:{ip}", limit=settings.register_rate_limit,
                        window_seconds=settings.register_rate_window_seconds,
@@ -95,6 +103,8 @@ def verify_email(token: str, response: Response, db: Session = Depends(get_db)) 
 @router.post("/resend-verification", response_model=PasswordResetOut)
 def resend_verification(payload: ResendVerificationRequest, request: Request, db: Session = Depends(get_db)) -> PasswordResetOut:
     settings = get_settings()
+    if not settings.self_registration_enabled:
+        return PasswordResetOut(ok=True)
     enforce_rate_limit(db, f"verify:{client_ip(request)}:{payload.email.lower()}", limit=5,
                        window_seconds=3600, detail="Too many requests")
     user = db.scalar(select(User).where(User.email == payload.email.strip().lower()))
@@ -136,6 +146,8 @@ def logout(response: Response) -> dict:
 @router.post("/password-reset/request", response_model=PasswordResetOut)
 def password_reset_request(payload: PasswordResetRequest, request: Request, db: Session = Depends(get_db)) -> PasswordResetOut:
     settings = get_settings()
+    if not settings.resend_api_key.strip() or not settings.resend_from_email.strip():
+        return PasswordResetOut(ok=True)
     email = payload.email.strip().lower()
     enforce_rate_limit(db, f"reset:{client_ip(request)}:{email}", limit=5, window_seconds=3600, detail="Too many requests")
     user = db.scalar(select(User).where(User.email == email))

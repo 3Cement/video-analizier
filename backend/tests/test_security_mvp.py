@@ -61,6 +61,28 @@ def test_registration_is_limited_to_configured_email(client):
     turnstile.assert_not_called()
 
 
+def test_registration_can_be_fully_disabled(client):
+    settings = get_settings()
+    settings.self_registration_enabled = False
+    settings.single_user_email = "owner@example.com"
+    with patch("app.api.auth_routes.verify_turnstile") as turnstile:
+        response = client.post(
+            "/api/auth/register",
+            json={"email": "owner@example.com", "password": "secret123", "turnstile_token": "unused"},
+        )
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Registration is closed"}
+    turnstile.assert_not_called()
+
+    config = client.get("/api/auth/config")
+    assert config.status_code == 200
+    assert config.json() == {
+        "turnstile_site_key": "",
+        "registration_enabled": False,
+        "password_reset_enabled": False,
+    }
+
+
 def test_single_user_email_comparison_is_normalized(client):
     settings = get_settings()
     settings.single_user_email = " Owner@Example.com "

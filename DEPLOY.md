@@ -9,7 +9,7 @@ Produkcyjny stack składa się z PostgreSQL, API, osobnego workera i Caddy. Na w
 1. Połącz się z OVH poleceniem `ssh -i ~/.ssh/investtracker-ovh ubuntu@57.131.51.89` i ponownie sprawdź, że port `8082` oraz podsieć `172.28.0.0/24` są wolne.
 2. Sklonuj `main` do osobnego katalogu, skopiuj `.env.example` do `.env`, ustaw prawa `600` i wpisz sekrety bezpośrednio na VPS.
 3. Zaimportuj repozytorium do Vercela. `vercel.json` przekazuje ruch do publicznego IP OVH `57.131.51.89`; ustaw `PUBLIC_BASE_URL` oraz `ALLOWED_ORIGINS` na otrzymany adres `https://projekt.vercel.app`.
-4. Ustaw `SINGLE_USER_EMAIL` na adres właściciela konta Resend, `RESEND_FROM_EMAIL=onboarding@resend.dev` i skonfiguruj Turnstile wyłącznie dla hosta Vercela.
+4. Dla obecnego prywatnego pilota ustaw `SELF_REGISTRATION_ENABLED=false` i `SINGLE_USER_EMAIL` na jedyny adres logowania. Resend i Turnstile mogą pozostać puste.
 5. Ustaw `LLM_PROVIDER=openrouter`, osobny `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL=https://openrouter.ai/api/v1` oraz `OPENROUTER_MODEL=google/gemini-3.1-flash-lite`.
 6. Uruchom stack:
 
@@ -19,7 +19,13 @@ docker compose -f docker-compose.prod.yml ps
 curl -fsS http://127.0.0.1:8082/api/health/ready
 ```
 
-7. Dodaj fallback vhost nginx dopiero po sprawdzeniu jego konfiguracji:
+7. Utwórz lub zresetuj jedyne, od razu zweryfikowane konto. Polecenie poprosi o hasło bez wyświetlania go:
+
+```bash
+docker compose -f docker-compose.prod.yml exec api python -m app provision-user
+```
+
+8. Dodaj fallback vhost nginx dopiero po sprawdzeniu jego konfiguracji:
 
 ```bash
 sudo cp deploy/nginx-video-analizier.conf /etc/nginx/sites-available/video-analizier
@@ -30,7 +36,7 @@ curl -fsS http://57.131.51.89/api/health/ready
 curl -fsS https://projekt.vercel.app/api/health/ready
 ```
 
-Przed i po przeładowaniu nginx sprawdź `https://api.investtracker.eu/health` oraz `https://api.policzalne.pl/api/health`. W produkcji wymagane są `PUBLIC_BASE_URL`, `SINGLE_USER_EMAIL`, `ADMIN_API_KEY`, `POSTGRES_PASSWORD`, dane Resend, oba klucze Turnstile oraz co najmniej jeden serwerowy klucz LLM. `AUTH_REQUIRED=true` i `COOKIE_SECURE=true` są wymuszane przez Compose. Kluczy LLM nie podaje się w UI ani w konfiguracji Vercela. Vercel i Caddy jawnie wyłączają cache odpowiedzi aplikacji.
+Przed i po przeładowaniu nginx sprawdź `https://api.investtracker.eu/health` oraz `https://api.policzalne.pl/api/health`. W prywatnym profilu wymagane są `PUBLIC_BASE_URL`, `SINGLE_USER_EMAIL`, `ADMIN_API_KEY`, `POSTGRES_PASSWORD` oraz klucz wybranego LLM. Resend i Turnstile stają się wymagane dopiero po ustawieniu `SELF_REGISTRATION_ENABLED=true`. `AUTH_REQUIRED=true` i `COOKIE_SECURE=true` są wymuszane przez Compose. Kluczy LLM nie podaje się w UI ani w konfiguracji Vercela. Vercel i Caddy jawnie wyłączają cache odpowiedzi aplikacji.
 
 ## Aktualizacja
 
