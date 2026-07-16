@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     login_rate_window_seconds: int = 300
     register_rate_limit: int = 5
     register_rate_window_seconds: int = 3600
+    self_registration_enabled: bool = True
     job_max_attempts: int = 3
     job_stale_seconds: int = 1800
     job_retry_base_seconds: float = 5.0
@@ -102,12 +103,15 @@ class Settings(BaseSettings):
         required = {
             "PUBLIC_BASE_URL": self.public_base_url,
             "ADMIN_API_KEY": self.admin_api_key,
-            "RESEND_API_KEY": self.resend_api_key,
-            "RESEND_FROM_EMAIL": self.resend_from_email,
-            "TURNSTILE_SITE_KEY": self.turnstile_site_key,
-            "TURNSTILE_SECRET_KEY": self.turnstile_secret_key,
             "SINGLE_USER_EMAIL": self.single_user_email,
         }
+        if self.self_registration_enabled:
+            required.update({
+                "RESEND_API_KEY": self.resend_api_key,
+                "RESEND_FROM_EMAIL": self.resend_from_email,
+                "TURNSTILE_SITE_KEY": self.turnstile_site_key,
+                "TURNSTILE_SECRET_KEY": self.turnstile_secret_key,
+            })
         missing = [name for name, value in required.items() if not str(value).strip()]
         if missing:
             raise RuntimeError(f"Missing required production settings: {', '.join(missing)}")

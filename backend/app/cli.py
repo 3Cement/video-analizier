@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
+
+from sqlalchemy import select
 
 from app.chunking import segments_to_transcript
 from app.config import get_settings
@@ -12,8 +16,44 @@ from app.llm.client import has_llm_credentials
 from app.llm.qa import answer_question
 from app.llm.summarize import summarize_segments
 from app.llm_settings_store import apply_llm_overrides
-from app.models import Source, Summary
+from app.models import Source, Summary, User
 from app.pipeline import process_youtube_source
+from app.security import hash_password, new_api_token
+
+
+def cmd_provision_user(args: argparse.Namespace) -> int:
+    settings = get_settings()
+    email = (args.email or settings.single_user_email).strip().lower()
+    if not email:
+        raise SystemExit("Email is required via --email or SINGLE_USER_EMAIL")
+    configured_email = settings.single_user_email.strip().lower()
+    if configured_email and email != configured_email:
+        raise SystemExit("Email must match SINGLE_USER_EMAIL")
+
+    password = sys.stdin.readline().rstrip("\r\n") if args.password_stdin else getpass.getpass("Password: ")
+    if len(password) < 8:
+        raise SystemExit("Password must contain at least 8 characters")
+
+    init_db()
+    db = get_session()
+    try:
+        user = db.scalar(select(User).where(User.email == email))
+        if user is None:
+            user = User(email=email, password_hash="", token=new_api_token())
+            db.add(user)
+        user.password_hash = hash_password(password)
+        user.token = new_api_token()
+        user.is_active = True
+        user.email_verified_at = datetime.now(timezone.utc)
+        user.verification_token_hash = None
+        user.verification_token_expires = None
+        user.reset_token = None
+        user.reset_token_expires = None
+        db.commit()
+        print(f"Provisioned verified user: {email}")
+        return 0
+    finally:
+        db.close()
 
 
 def cmd_analyze(args: argparse.Namespace) -> int:
@@ -165,6 +205,15 @@ def build_parser() -> argparse.ArgumentParser:
     subs = sub.add_parser("list-subs", help="List available YouTube captions")
     subs.add_argument("url")
     subs.set_defaults(func=cmd_list_subs)
+
+    provision = sub.add_parser("provision-user", help="Create or reset the single verified user")
+    provision.add_argument("--email", default="", help="Defaults to SINGLE_USER_EMAIL")
+    provision.add_argument(
+        "--password-stdin",
+        action="store_true",
+        help="Read one password line from stdin instead of prompting",
+    )
+    provision.set_defaults(func=cmd_provision_user)
     return parser
 
 
