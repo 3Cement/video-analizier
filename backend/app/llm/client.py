@@ -41,6 +41,8 @@ def has_llm_credentials(settings: Optional[Settings] = None) -> bool:
         return bool(settings.anthropic_api_key.strip())
     if provider == "openrouter":
         return bool(_openrouter_config(settings)[0])
+    if provider == "ollama":
+        return bool(settings.ollama_base_url.strip() and settings.ollama_model.strip())
     return bool(settings.openai_api_key.strip())
 
 
@@ -50,11 +52,21 @@ def resolve_model(settings: Settings) -> str:
         return settings.anthropic_model
     if provider == "openrouter":
         return _openrouter_config(settings)[2]
+    if provider == "ollama":
+        return settings.ollama_model
     return settings.openai_model
 
 
 def get_openai_compatible_client(settings: Settings) -> tuple[OpenAI, str]:
     provider = llm_provider(settings)
+    if provider == "ollama":
+        if not settings.ollama_base_url.strip() or not settings.ollama_model.strip():
+            raise RuntimeError("OLLAMA_BASE_URL and OLLAMA_MODEL are required")
+        client = OpenAI(
+            api_key="ollama",
+            base_url=settings.ollama_base_url,
+        )
+        return client, settings.ollama_model
     if provider == "openrouter":
         api_key, base_url, model = _openrouter_config(settings)
         if not api_key:

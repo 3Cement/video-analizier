@@ -108,7 +108,7 @@ def _maybe_summarize(db: Session, source: Source, auto_summarize: bool) -> None:
     if llm_allowed(db, settings, required_calls):
         db.add(UsageEvent(user_id=source.user_id, event_type="llm_call", source_id=source.id, units=required_calls))
     else:
-        settings = settings.model_copy(update={"openai_api_key": "", "anthropic_api_key": "", "openrouter_api_key": "", "cursor_api_key": ""})
+        settings = settings.model_copy(update={"llm_provider": "disabled", "openai_api_key": "", "anthropic_api_key": "", "openrouter_api_key": "", "cursor_api_key": ""})
     content = summarize_segments(segs, title=source.title, kind="briefing", settings=settings)
     db.add(Summary(source_id=source.id, kind="briefing", content=content))
     if source.source_type in {"article", "book", "podcast", "audiobook", "audio", "pdf", "text"}:

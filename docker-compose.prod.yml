@@ -1,4 +1,36 @@
 services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes: ["ollama_data:/root/.ollama"]
+    environment:
+      OLLAMA_CONTEXT_LENGTH: "16384"
+      OLLAMA_KEEP_ALIVE: "2m"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_NUM_PARALLEL: "1"
+    mem_limit: 4g
+    cpus: 3.0
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks:
+      app_net:
+        ipv4_address: 172.28.0.5
+
+  ollama-pull:
+    image: ollama/ollama:latest
+    restart: "no"
+    command: ["pull", "${OLLAMA_MODEL:-qwen3:4b-instruct}"]
+    volumes: ["ollama_data:/root/.ollama"]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks: [app_net]
+
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -32,9 +64,14 @@ services:
       COOKIE_SECURE: "true"
       TRUSTED_PROXY_IPS: 172.28.0.4
       SINGLE_USER_EMAIL: ${SINGLE_USER_EMAIL:?SINGLE_USER_EMAIL is required}
+      LLM_PROVIDER: ollama
+      OLLAMA_BASE_URL: http://ollama:11434/v1
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:4b-instruct}
     depends_on:
       postgres:
         condition: service_healthy
+      ollama-pull:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health/ready"]
       interval: 10s
@@ -56,6 +93,10 @@ services:
       MEDIA_DIR: /app/data/media
       WORKER_MODE: "true"
       AUTH_REQUIRED: "true"
+      JOB_MAX_WORKERS: "1"
+      LLM_PROVIDER: ollama
+      OLLAMA_BASE_URL: http://ollama:11434/v1
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:4b-instruct}
     depends_on:
       api:
         condition: service_healthy
@@ -80,6 +121,7 @@ services:
         ipv4_address: 172.28.0.4
 
 volumes:
+  ollama_data:
   postgres_data:
   app_data:
   caddy_data:

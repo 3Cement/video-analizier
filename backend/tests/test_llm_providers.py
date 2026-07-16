@@ -10,6 +10,7 @@ def test_has_llm_credentials_per_provider():
     assert has_llm_credentials(Settings(llm_provider="anthropic", anthropic_api_key="k"))
     assert has_llm_credentials(Settings(llm_provider="openrouter", openrouter_api_key="k"))
     assert has_llm_credentials(Settings(llm_provider="cursor", cursor_api_key="k"))
+    assert has_llm_credentials(Settings(llm_provider="ollama"))
     assert not has_llm_credentials(Settings(llm_provider="anthropic", openai_api_key="k"))
 
 
@@ -76,6 +77,23 @@ def test_cursor_is_a_legacy_alias_for_openrouter():
     assert fake_client.chat.completions.create.call_args.kwargs["model"] == "legacy-model"
 
 
+def test_ollama_uses_local_openai_compatible_endpoint_without_api_key():
+    settings = Settings(
+        llm_provider="ollama",
+        ollama_base_url="http://ollama:11434/v1",
+        ollama_model="qwen3:test",
+    )
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.return_value = MagicMock(
+        choices=[MagicMock(message=MagicMock(content="Lokalna odpowiedź"))]
+    )
+    with patch("app.llm.client.OpenAI", return_value=fake_client) as openai_cls:
+        out = chat_completion("sys", "user", settings=settings)
+    assert out == "Lokalna odpowiedź"
+    openai_cls.assert_called_once_with(api_key="ollama", base_url="http://ollama:11434/v1")
+    assert fake_client.chat.completions.create.call_args.kwargs["model"] == "qwen3:test"
+
+
 def test_llm_settings_are_read_only(client, db_session, tmp_path, monkeypatch):
     from app.config import get_settings
 
@@ -86,7 +104,7 @@ def test_llm_settings_are_read_only(client, db_session, tmp_path, monkeypatch):
 
     status = client.get("/api/llm/status")
     assert status.status_code == 200
-    assert status.json()["provider"] in {"openai", "anthropic", "openrouter"}
+    assert status.json()["provider"] in {"openai", "anthropic", "openrouter", "ollama"}
 
     saved = client.put(
         "/api/llm/settings",

@@ -10,7 +10,7 @@ Produkcyjny stack składa się z PostgreSQL, API, osobnego workera i Caddy. Na w
 2. Sklonuj `main` do osobnego katalogu, skopiuj `.env.example` do `.env`, ustaw prawa `600` i wpisz sekrety bezpośrednio na VPS.
 3. Zaimportuj repozytorium do Vercela. `vercel.json` przekazuje ruch do publicznego IP OVH `57.131.51.89`; ustaw `PUBLIC_BASE_URL` oraz `ALLOWED_ORIGINS` na otrzymany adres `https://projekt.vercel.app`.
 4. Dla obecnego prywatnego pilota ustaw `SELF_REGISTRATION_ENABLED=false` i `SINGLE_USER_EMAIL` na jedyny adres logowania. Resend i Turnstile mogą pozostać puste.
-5. Ustaw `LLM_PROVIDER=openrouter`, osobny `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL=https://openrouter.ai/api/v1` oraz `OPENROUTER_MODEL=google/gemini-3.1-flash-lite`.
+5. Ustaw `LLM_PROVIDER=ollama` i `OLLAMA_MODEL=qwen3:4b-instruct`. Compose uruchomi lokalną Ollamę i pobierze model; płatny klucz API nie jest potrzebny.
 6. Uruchom stack:
 
 ```bash
@@ -36,7 +36,7 @@ curl -fsS http://57.131.51.89/api/health/ready
 curl -fsS https://projekt.vercel.app/api/health/ready
 ```
 
-Przed i po przeładowaniu nginx sprawdź `https://api.investtracker.eu/health` oraz `https://api.policzalne.pl/api/health`. W prywatnym profilu wymagane są `PUBLIC_BASE_URL`, `SINGLE_USER_EMAIL`, `ADMIN_API_KEY`, `POSTGRES_PASSWORD` oraz klucz wybranego LLM. Resend i Turnstile stają się wymagane dopiero po ustawieniu `SELF_REGISTRATION_ENABLED=true`. `AUTH_REQUIRED=true` i `COOKIE_SECURE=true` są wymuszane przez Compose. Kluczy LLM nie podaje się w UI ani w konfiguracji Vercela. Vercel i Caddy jawnie wyłączają cache odpowiedzi aplikacji.
+Przed i po przeładowaniu nginx sprawdź `https://api.investtracker.eu/health` oraz `https://api.policzalne.pl/api/health`. W prywatnym profilu wymagane są `PUBLIC_BASE_URL`, `SINGLE_USER_EMAIL`, `ADMIN_API_KEY` i `POSTGRES_PASSWORD`; lokalna Ollama nie wymaga klucza. Resend i Turnstile stają się wymagane dopiero po ustawieniu `SELF_REGISTRATION_ENABLED=true`. `AUTH_REQUIRED=true` i `COOKIE_SECURE=true` są wymuszane przez Compose. Opcjonalnych kluczy zewnętrznych LLM nie podaje się w UI ani w konfiguracji Vercela. Vercel i Caddy jawnie wyłączają cache odpowiedzi aplikacji.
 
 ## Aktualizacja
 

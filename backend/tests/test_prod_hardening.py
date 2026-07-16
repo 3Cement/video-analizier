@@ -167,3 +167,22 @@ def test_email_services_are_optional_when_self_registration_is_disabled():
     )
 
     settings.validate_production()
+
+
+def test_local_ollama_needs_no_paid_api_key_in_production():
+    settings = Settings(
+        auth_required=True,
+        self_registration_enabled=False,
+        public_base_url="https://video-analizier.vercel.app",
+        admin_api_key="admin",
+        single_user_email="owner@example.com",
+        llm_provider="ollama",
+        ollama_base_url="http://ollama:11434/v1",
+        ollama_model="qwen3:4b-instruct",
+        openai_api_key="",
+        anthropic_api_key="",
+        openrouter_api_key="",
+        cursor_api_key="",
+    )
+
+    settings.validate_production()

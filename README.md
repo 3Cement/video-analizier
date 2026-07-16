@@ -52,7 +52,7 @@ PYTHONPATH=backend python -m app analyze "https://www.youtube.com/watch?v=VIDEO_
 
 | Zmienna | Opis |
 |---------|------|
-| `LLM_PROVIDER` | `openai` / `anthropic` / `openrouter` (`cursor` tylko jako stary alias) |
+| `LLM_PROVIDER` | `ollama` (lokalnie, bez klucza) / `openai` / `anthropic` / `openrouter` |
 | `OPENAI_API_KEY` | Klucz OpenAI |
 | `ANTHROPIC_API_KEY` | Klucz Anthropic |
 | `OPENROUTER_API_KEY` | Klucz OpenRouter; nie trafia do UI ani Vercela |
@@ -66,7 +66,7 @@ PYTHONPATH=backend python -m app analyze "https://www.youtube.com/watch?v=VIDEO_
 | `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | ochrona otwartej rejestracji |
 | `ADMIN_API_KEY` | osobny klucz endpointów administracyjnych |
 
-W prywatnym pilocie konto jest provisionowane ręcznie przez `python -m app provision-user`, a samodzielna rejestracja pozostaje wyłączona. Po późniejszym włączeniu rejestracji konto musi zostać potwierdzone e-mailem. Sesja działa wyłącznie przez cookie HttpOnly; klucze LLM są wspólne, serwerowe i nie są ustawiane w przeglądarce.
+W prywatnym pilocie konto jest provisionowane ręcznie przez `python -m app provision-user`, a samodzielna rejestracja pozostaje wyłączona. Podsumowania tworzy lokalny `qwen3:4b-instruct` przez Ollamę, więc wdrożenie nie wymaga płatnego klucza LLM. Po późniejszym włączeniu rejestracji konto musi zostać potwierdzone e-mailem. Sesja działa wyłącznie przez cookie HttpOnly; opcjonalne klucze zewnętrznych LLM są serwerowe i nie są ustawiane w przeglądarce.
 
 ## Testy
 

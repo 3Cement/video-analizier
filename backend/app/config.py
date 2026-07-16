@@ -11,7 +11,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    llm_provider: str = "openai"  # openai | anthropic | openrouter (cursor is a legacy alias)
+    llm_provider: str = "openai"  # openai | anthropic | openrouter | ollama
 
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     cursor_api_key: str = ""
     cursor_base_url: str = "https://api.openai.com/v1"
     cursor_model: str = "gpt-4o-mini"
+
+    ollama_base_url: str = "http://localhost:11434/v1"
+    ollama_model: str = "qwen3:4b-instruct"
 
     whisper_model: str = "small"
     whisper_device: str = "cpu"
@@ -115,6 +118,8 @@ class Settings(BaseSettings):
         missing = [name for name, value in required.items() if not str(value).strip()]
         if missing:
             raise RuntimeError(f"Missing required production settings: {', '.join(missing)}")
+        if self.llm_provider.strip().lower() == "ollama":
+            return
         if not any((self.openai_api_key, self.anthropic_api_key, self.openrouter_api_key, self.cursor_api_key)):
             raise RuntimeError("At least one server-side LLM API key is required")
 
