@@ -1,4 +1,4 @@
-.PHONY: install test run format
+.PHONY: install test run format smoke-docker smoke-local
 
 install:
 	pip install -r requirements.txt
@@ -12,3 +12,9 @@ run:
 
 format:
 	python -m compileall backend/app
+
+smoke-docker:
+	bash scripts/smoke_docker.sh
+
+smoke-local:
+	bash scripts/smoke_local.sh

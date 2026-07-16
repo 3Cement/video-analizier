@@ -27,7 +27,10 @@ def test_youtube_pipeline_persists_classified_error(db_session):
 
     assert raised
     db_session.refresh(source)
-    assert source.status == "failed"
+    assert source.status in {"failed", "pending"}
+    assert source.error_code
+    if source.status == "pending":
+        assert source.next_run_at is not None
     assert source.error_code == "youtube_bot_check"
     assert source.error_hint
     assert "bot" in (source.error or "").lower()

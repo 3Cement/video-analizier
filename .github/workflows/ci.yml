@@ -1,0 +1,32 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: video_analizier_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d video_analizier_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/video_analizier_test
+      AUTH_REQUIRED: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip}
+      - run: pip install -e '.[dev]' pip-audit
+      - run: alembic upgrade head
+      - run: pytest -q
+      - run: pip-audit
+      - run: cp .env.example .env && POSTGRES_PASSWORD=test DOMAIN=example.com docker compose -f docker-compose.prod.yml config --quiet
+      - run: docker build -t video-analizier:test .

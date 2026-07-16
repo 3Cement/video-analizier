@@ -279,3 +279,59 @@ def list_subs(url: str) -> dict[str, Any]:
         "subtitles": list((info.get("subtitles") or {}).keys()),
         "automatic_captions": list((info.get("automatic_captions") or {}).keys()),
     }
+
+def expand_youtube_urls(urls: list[str], max_videos: int = 50) -> list[str]:
+    """Expand playlist/list= URLs into watch URLs; keep plain video URLs as-is."""
+    from urllib.parse import parse_qs, urlparse
+
+    expanded: list[str] = []
+    seen: set[str] = set()
+
+    def add(url: str) -> None:
+        key = url.strip()
+        if not key or key in seen:
+            return
+        seen.add(key)
+        expanded.append(key)
+
+    for raw in urls:
+        url = (raw or "").strip()
+        if not url:
+            continue
+        parsed = urlparse(url)
+        qs = parse_qs(parsed.query)
+        is_playlist = "list" in qs or "playlist" in parsed.path
+        if not is_playlist:
+            add(url)
+            continue
+        try:
+            import yt_dlp
+        except ImportError as exc:  # pragma: no cover
+            raise RuntimeError("yt-dlp is required to expand playlists") from exc
+        opts = {
+            "quiet": True,
+            "skip_download": True,
+            "extract_flat": True,
+            "noplaylist": False,
+        }
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+        entries = info.get("entries") or []
+        if not entries and info.get("id"):
+            add(f"https://www.youtube.com/watch?v={info['id']}")
+            continue
+        for entry in entries:
+            if len(expanded) >= max_videos:
+                break
+            if not entry:
+                continue
+            vid = entry.get("id") or entry.get("url")
+            if not vid:
+                continue
+            if isinstance(vid, str) and vid.startswith("http"):
+                add(vid)
+            else:
+                add(f"https://www.youtube.com/watch?v={vid}")
+        if len(expanded) >= max_videos:
+            break
+    return expanded[:max_videos]

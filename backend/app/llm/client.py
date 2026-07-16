@@ -9,7 +9,29 @@ from app.config import Settings, get_settings
 
 
 def llm_provider(settings: Settings) -> str:
-    return (settings.llm_provider or "openai").strip().lower()
+    provider = (settings.llm_provider or "openai").strip().lower()
+    return "openrouter" if provider == "cursor" else provider
+
+
+def _openrouter_config(settings: Settings) -> tuple[str, str, str]:
+    """Return OpenRouter config, falling back to legacy Cursor-named variables."""
+    if settings.openrouter_api_key.strip():
+        return (
+            settings.openrouter_api_key.strip(),
+            settings.openrouter_base_url or "https://openrouter.ai/api/v1",
+            settings.openrouter_model,
+        )
+    if settings.cursor_api_key.strip():
+        return (
+            settings.cursor_api_key.strip(),
+            settings.cursor_base_url or "https://openrouter.ai/api/v1",
+            settings.cursor_model,
+        )
+    return (
+        "",
+        settings.openrouter_base_url or "https://openrouter.ai/api/v1",
+        settings.openrouter_model,
+    )
 
 
 def has_llm_credentials(settings: Optional[Settings] = None) -> bool:
@@ -17,8 +39,8 @@ def has_llm_credentials(settings: Optional[Settings] = None) -> bool:
     provider = llm_provider(settings)
     if provider == "anthropic":
         return bool(settings.anthropic_api_key.strip())
-    if provider == "cursor":
-        return bool(settings.cursor_api_key.strip())
+    if provider == "openrouter":
+        return bool(_openrouter_config(settings)[0])
     return bool(settings.openai_api_key.strip())
 
 
@@ -26,23 +48,24 @@ def resolve_model(settings: Settings) -> str:
     provider = llm_provider(settings)
     if provider == "anthropic":
         return settings.anthropic_model
-    if provider == "cursor":
-        return settings.cursor_model
+    if provider == "openrouter":
+        return _openrouter_config(settings)[2]
     return settings.openai_model
 
 
 def get_openai_compatible_client(settings: Settings) -> tuple[OpenAI, str]:
     provider = llm_provider(settings)
-    if provider == "cursor":
-        if not settings.cursor_api_key.strip():
+    if provider == "openrouter":
+        api_key, base_url, model = _openrouter_config(settings)
+        if not api_key:
             raise RuntimeError(
-                "CURSOR_API_KEY is not set. Configure .env or UI settings to enable LLM."
+                "OPENROUTER_API_KEY is not set. Configure .env to enable LLM."
             )
         client = OpenAI(
-            api_key=settings.cursor_api_key,
-            base_url=settings.cursor_base_url or "https://api.openai.com/v1",
+            api_key=api_key,
+            base_url=base_url,
         )
-        return client, settings.cursor_model
+        return client, model
     if not settings.openai_api_key.strip():
         raise RuntimeError(
             "OPENAI_API_KEY is not set. Configure .env or UI settings to enable LLM."

@@ -28,6 +28,8 @@
     />
     <meta name="twitter:image" content="/assets/og-default.svg" />
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0f1419" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -55,6 +57,7 @@
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "PLN" }
       }
     </script>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
   </head>
   <body>
     <div class="atmosphere" aria-hidden="true"></div>
@@ -62,63 +65,12 @@
       <header class="hero">
         <div class="row-between">
           <h1 class="brand">video-analizier</h1>
-          <button id="llm-toggle" class="ghost" type="button">Klucze LLM</button>
         </div>
         <p class="lede">
           Wklej link do YouTube — dostaniesz czytelne podsumowanie i kluczowe
           wnioski, nawet gdy film nie ma napisów.
         </p>
         <p id="quota-line" class="muted quota-line">Sprawdzam limit dzienny…</p>
-
-        <details id="llm-settings" class="llm-settings">
-          <summary class="sr-only">Ustawienia LLM</summary>
-          <form id="llm-form" class="form">
-            <p class="muted" id="llm-status-line">Wybierz providera i wklej klucz API.</p>
-            <label>
-              Provider
-              <select id="llm-provider">
-                <option value="openai">OpenAI</option>
-                <option value="anthropic">Anthropic</option>
-                <option value="cursor">Cursor (OpenAI-compatible)</option>
-              </select>
-            </label>
-            <div class="provider-fields" data-provider="openai">
-              <label>
-                OpenAI API key
-                <input id="openai-api-key" type="password" autocomplete="off" placeholder="sk-..." />
-              </label>
-              <label>
-                Model
-                <input id="openai-model" type="text" placeholder="gpt-4o-mini" />
-              </label>
-            </div>
-            <div class="provider-fields" data-provider="anthropic" hidden>
-              <label>
-                Anthropic API key
-                <input id="anthropic-api-key" type="password" autocomplete="off" placeholder="sk-ant-..." />
-              </label>
-              <label>
-                Model
-                <input id="anthropic-model" type="text" placeholder="claude-sonnet-4-20250514" />
-              </label>
-            </div>
-            <div class="provider-fields" data-provider="cursor" hidden>
-              <label>
-                Cursor / OpenAI-compatible API key
-                <input id="cursor-api-key" type="password" autocomplete="off" placeholder="key..." />
-              </label>
-              <label>
-                Base URL
-                <input id="cursor-base-url" type="url" placeholder="https://api.openai.com/v1" />
-              </label>
-              <label>
-                Model
-                <input id="cursor-model" type="text" placeholder="gpt-4o-mini" />
-              </label>
-            </div>
-            <button type="submit">Zapisz klucz</button>
-          </form>
-        </details>
 
         <form id="youtube-form" class="hero-form">
           <label class="sr-only" for="youtube-url">Link YouTube / artykuł / podcast</label>
@@ -137,6 +89,10 @@
           Tylko transkrypt (bez podsumowania LLM)
         </label>
         <p id="status-line" class="status" aria-live="polite">Gotowe do analizy.</p>
+        <div id="progress-wrap" class="progress-wrap" hidden>
+          <div id="progress-bar" class="progress-bar"></div>
+          <span id="progress-label" class="muted"></span>
+        </div>
         <p id="error-box" class="error-box" hidden></p>
         <ol id="steps" class="steps" hidden>
           <li data-step="downloading">Pobieranie audio</li>
@@ -165,6 +121,7 @@
           <button id="force-asr-btn" class="ghost" type="button" hidden>Force ASR (Whisper)</button>
           <button id="share-btn" class="ghost" type="button" hidden>Udostępnij</button>
           <button id="export-md-btn" class="ghost" type="button" hidden>Eksport MD</button>
+          <button id="export-docx-btn" class="ghost" type="button" hidden>Eksport DOCX</button>
           <button id="extract-facts-btn" class="ghost" type="button" hidden>Wyciągnij dane</button>
           <button id="summarize-btn" class="ghost" type="button" hidden>Wygeneruj podsumowanie</button>
           <button id="delete-btn" class="ghost danger" type="button" hidden>Usuń</button>
@@ -192,13 +149,59 @@
           <summary>Transkrypt z timestampami</summary>
           <pre id="transcript-pre" class="transcript-lines"></pre>
         </details>
+        <form id="tag-form" class="form inline-form" hidden>
+          <label>Tag <input id="tag-name" type="text" placeholder="np. praca" /></label>
+          <button type="submit">Dodaj tag</button>
+        </form>
+        <p id="tags-line" class="muted"></p>
+        <form id="note-form" class="form" hidden>
+          <label>Notatka <textarea id="note-body" rows="3" required></textarea></label>
+          <button type="submit">Zapisz notatkę</button>
+        </form>
+        <ul id="notes-list" class="notes-list"></ul>
       </section>
 
-      <section class="history" aria-labelledby="history-title">
+      <section class="library" aria-labelledby="library-title">
         <div class="row-between">
-          <h2 id="history-title">Ostatnie analizy</h2>
+          <h2 id="library-title">Biblioteka wiedzy</h2>
           <button id="refresh-btn" class="ghost" type="button">Odśwież</button>
         </div>
+        <details class="auth-box">
+          <summary id="auth-summary">Konto</summary>
+          <form id="auth-form" class="form auth-form">
+            <label>Email <input id="auth-email" type="email" required /></label>
+            <label>Hasło <input id="auth-password" type="password" minlength="6" required /></label>
+            <div id="turnstile-widget"></div>
+            <div class="row-between">
+              <button type="submit" data-mode="login">Zaloguj</button>
+              <button type="button" id="auth-register" class="ghost">Zarejestruj</button>
+              <button type="button" id="password-reset-request" class="ghost">Reset hasła</button>
+              <button type="button" id="auth-logout" class="ghost">Wyloguj</button>
+            </div>
+            <p id="auth-status" class="muted"></p>
+          </form>
+          <form id="password-reset-form" class="form auth-form">
+            <label>Token resetu <input id="reset-token" type="text" /></label>
+            <label>Nowe hasło <input id="reset-password" type="password" minlength="6" required /></label>
+            <button type="submit">Ustaw nowe hasło</button>
+          </form>
+        </details>
+        <form id="search-form" class="form search-form">
+          <label>
+            Szukaj w tytułach, transkryptach i podsumowaniach
+            <input id="search-q" type="search" placeholder="np. białko, odcinek, rozdział…" />
+          </label>
+          <button type="submit">Szukaj</button>
+        </form>
+        <ul id="search-hits" class="source-list" hidden></ul>
+        <div class="library-tools">
+          <form id="collection-form" class="form inline-form">
+            <label>Nowa kolekcja <input id="collection-name" type="text" placeholder="np. Podcasty AI" /></label>
+            <button type="submit">Dodaj</button>
+          </form>
+          <ul id="collection-list" class="chip-list"></ul>
+        </div>
+        <h3 id="history-title">Ostatnie analizy</h3>
         <ul id="source-list" class="source-list"></ul>
       </section>
 
@@ -237,7 +240,7 @@
           <form id="upload-form" class="form">
             <label>
               Plik: PDF / EPUB / TXT / audio / audiobook
-              <input id="upload-file" name="file" type="file" accept=".pdf,.epub,.txt,.md,.mp3,.m4a,.m4b,.wav,.ogg,.opus,.flac,.aac,.mp4,.mkv,.webm" required />
+              <input id="upload-file" name="file" type="file" accept=".pdf,.epub,.docx,.txt,.md,.mp3,.m4a,.m4b,.wav,.ogg,.opus,.flac,.aac,.mp4,.mkv,.webm" required />
             </label>
             <button type="submit">Wgraj i analizuj</button>
           </form>
@@ -285,5 +288,10 @@
       </section>
     </main>
     <script src="/assets/app.js" defer></script>
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+      }
+    </script>
   </body>
 </html>

@@ -10,16 +10,24 @@ from app.asr.whisper import transcribe_audio
 from app.config import get_settings
 from app.errors import classify_job_error
 from app.ingest.article import fetch_article
-from app.ingest.epub import extract_epub_text
+from app.ingest.docx_ingest import extract_docx_text
+from app.ingest.epub import chapters_to_segments, extract_epub_chapters
 from app.ingest.pdf import extract_pdf_text
 from app.ingest.podcast import download_audio, resolve_episode_audio
 from app.ingest.text import load_text_file, text_to_segments
 from app.ingest.youtube import ingest_youtube, load_local_captions
 from app.llm.summarize import summarize_segments
-from app.limits import check_duration_limit
-from app.llm_settings_store import apply_llm_overrides
+from app.limits import check_duration_limit, estimate_summary_calls, llm_allowed
 from app.media import probe_duration_seconds
-from app.models import Segment, Source, Summary
+from app.models import Segment, Source, Summary, UsageEvent
+
+
+_RETRYABLE_ERROR_CODES = {
+    "network",
+    "youtube_bot_check",
+    "youtube_format",
+    "processing_failed",
+}
 
 
 def _fail_source(db: Session, source_id: int, exc: BaseException) -> None:
@@ -27,12 +35,47 @@ def _fail_source(db: Session, source_id: int, exc: BaseException) -> None:
     source = db.get(Source, source_id)
     if source is None:
         return
+    settings = get_settings()
     job_error = classify_job_error(exc)
-    source.status = "failed"
     source.error = job_error.message
     source.error_code = job_error.code
     source.error_hint = job_error.hint
+    source.claimed_at = None
+
+    max_attempts = source.max_attempts or settings.job_max_attempts
+    attempts = int(source.attempts or 0)
+    can_retry = job_error.code in _RETRYABLE_ERROR_CODES and attempts < max_attempts
+    if can_retry:
+        from datetime import datetime, timedelta, timezone
+
+        delay = min(300.0, settings.job_retry_base_seconds * (2 ** max(0, attempts - 1)))
+        source.status = "pending"
+        source.next_run_at = datetime.now(timezone.utc) + timedelta(seconds=delay)
+        source.progress = max(5.0, float(source.progress or 0))
+        source.progress_message = f"retry_scheduled_in_{int(delay)}s"
+        db.commit()
+        return
+
+    source.status = "failed"
+    source.next_run_at = None
+    source.progress = 100.0
+    source.progress_message = "failed"
     db.commit()
+
+
+def _set_progress(db: Session, source: Source, status: str, pct: float, message: str) -> None:
+    source.status = status
+    source.progress = max(0.0, min(100.0, float(pct)))
+    source.progress_message = message
+    db.commit()
+
+
+def _remove_heavy_media(source: Source, settings) -> None:
+    if source.source_type not in {"youtube", "podcast", "audio", "audiobook"}:
+        return
+    work_dir = settings.media_dir / f"source_{source.id}"
+    shutil.rmtree(work_dir, ignore_errors=True)
+    source.file_path = None
 
 
 def _transcribe_rows(audio_path: Path, language: str, settings) -> list[tuple[float, float, str]]:
@@ -58,8 +101,14 @@ def _replace_segments(db: Session, source: Source, rows: list[tuple[float, float
 def _maybe_summarize(db: Session, source: Source, auto_summarize: bool) -> None:
     if not auto_summarize:
         return
-    settings = apply_llm_overrides(get_settings())
+    settings = get_settings()
     segs = [(s.start, s.end, s.text) for s in source.segments]
+    summary_count = 2 if source.source_type in {"article", "book", "podcast", "audiobook", "audio", "pdf", "text"} else 1
+    required_calls = estimate_summary_calls(segs, settings) * summary_count
+    if llm_allowed(db, settings, required_calls):
+        db.add(UsageEvent(user_id=source.user_id, event_type="llm_call", source_id=source.id, units=required_calls))
+    else:
+        settings = settings.model_copy(update={"openai_api_key": "", "anthropic_api_key": "", "openrouter_api_key": "", "cursor_api_key": ""})
     content = summarize_segments(segs, title=source.title, kind="briefing", settings=settings)
     db.add(Summary(source_id=source.id, kind="briefing", content=content))
     if source.source_type in {"article", "book", "podcast", "audiobook", "audio", "pdf", "text"}:
@@ -74,8 +123,7 @@ def process_youtube_source(db: Session, source_id: int, auto_summarize: bool = T
         return
 
     try:
-        source.status = "downloading"
-        db.commit()
+        _set_progress(db, source, "downloading", 5, "Downloading media")
 
         work_dir = settings.media_dir / f"source_{source.id}"
         if work_dir.exists():
@@ -117,9 +165,12 @@ def process_youtube_source(db: Session, source_id: int, auto_summarize: bool = T
         source = db.get(Source, source_id)
         assert source is not None
         source.status = "ready"
+        source.progress = 100.0
+        source.progress_message = "ready"
         source.error = None
         source.error_code = None
         source.error_hint = None
+        _remove_heavy_media(source, settings)
         db.commit()
     except Exception as exc:  # noqa: BLE001 - persist job failure for API clients
         _fail_source(db, source_id, exc)
@@ -150,6 +201,8 @@ def process_text_source(
         source = db.get(Source, source_id)
         assert source is not None
         source.status = "ready"
+        source.progress = 100.0
+        source.progress_message = "ready"
         source.error = None
         source.error_code = None
         source.error_hint = None
@@ -178,12 +231,18 @@ def process_upload_source(db: Session, source_id: int, auto_summarize: bool = Tr
             text = extract_pdf_text(path)
             rows = text_to_segments(text)
         elif suffix == ".epub":
-            source.status = "transcribing"
+            _set_progress(db, source, "transcribing", 20, "Extracting EPUB chapters")
             source.transcript_method = "epub"
             source.source_type = "book"
             db.commit()
-            text = extract_epub_text(path)
-            rows = text_to_segments(text)
+            chapters = extract_epub_chapters(path)
+            rows = chapters_to_segments(chapters)
+        elif suffix == ".docx":
+            source.status = "transcribing"
+            source.transcript_method = "docx"
+            source.source_type = "document"
+            db.commit()
+            rows = text_to_segments(extract_docx_text(path))
         elif suffix in {".txt", ".md"}:
             source.status = "transcribing"
             source.transcript_method = "text"
@@ -218,9 +277,12 @@ def process_upload_source(db: Session, source_id: int, auto_summarize: bool = Tr
         source = db.get(Source, source_id)
         assert source is not None
         source.status = "ready"
+        source.progress = 100.0
+        source.progress_message = "ready"
         source.error = None
         source.error_code = None
         source.error_hint = None
+        _remove_heavy_media(source, settings)
         db.commit()
     except Exception as exc:  # noqa: BLE001
         _fail_source(db, source_id, exc)
@@ -238,6 +300,8 @@ def process_article_source(db: Session, source_id: int, auto_summarize: bool = T
         result = fetch_article(source.url or "")
         source.title = result.title or source.title
         source.url = result.url
+        source.author = result.author
+        _set_progress(db, source, "downloading", 30, "Article downloaded")
 
         settings = get_settings()
         work_dir = settings.media_dir / f"source_{source.id}"
@@ -261,9 +325,12 @@ def process_article_source(db: Session, source_id: int, auto_summarize: bool = T
         source = db.get(Source, source_id)
         assert source is not None
         source.status = "ready"
+        source.progress = 100.0
+        source.progress_message = "ready"
         source.error = None
         source.error_code = None
         source.error_hint = None
+        _remove_heavy_media(source, settings)
         db.commit()
     except Exception as exc:  # noqa: BLE001
         _fail_source(db, source_id, exc)
@@ -280,6 +347,11 @@ def process_podcast_source(db: Session, source_id: int, auto_summarize: bool = T
         db.commit()
         episode = resolve_episode_audio(source.url or "")
         source.title = episode.title or source.title
+        source.show_title = episode.show_title
+        source.description = episode.description
+        source.author = episode.author
+        source.published_at = episode.published_at
+        _set_progress(db, source, "downloading", 25, "Downloading episode audio")
         work_dir = settings.media_dir / f"source_{source.id}"
         work_dir.mkdir(parents=True, exist_ok=True)
         suffix = Path(episode.audio_url.split("?", 1)[0]).suffix.lower() or ".mp3"
@@ -310,9 +382,12 @@ def process_podcast_source(db: Session, source_id: int, auto_summarize: bool = T
         source = db.get(Source, source_id)
         assert source is not None
         source.status = "ready"
+        source.progress = 100.0
+        source.progress_message = "ready"
         source.error = None
         source.error_code = None
         source.error_hint = None
+        _remove_heavy_media(source, settings)
         db.commit()
     except Exception as exc:  # noqa: BLE001
         _fail_source(db, source_id, exc)
@@ -372,6 +447,8 @@ def reprocess_source_from_media(
         source = db.get(Source, source_id)
         assert source is not None
         source.status = "ready"
+        source.progress = 100.0
+        source.progress_message = "ready"
         source.error = None
         source.error_code = None
         source.error_hint = None

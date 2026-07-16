@@ -14,12 +14,12 @@ Działa też z PDF / tekstem / audio.
 
 ```bash
 cp .env.example .env
-# opcjonalnie: LLM_PROVIDER + OPENAI/ANTHROPIC/CURSOR key, YTDLP_PROXY
+# ustaw PostgreSQL, Resend, Turnstile, domenę i jeden serwerowy klucz LLM
 docker compose up --build
 ```
 
 UI: http://localhost:8000  
-Deploy: patrz [DEPLOY.md](DEPLOY.md) (Render / VPS).
+Deploy produkcyjny: patrz [DEPLOY.md](DEPLOY.md) (współdzielony OVH + nginx + PostgreSQL + worker + Caddy).
 
 ### Dev bez Dockera
 
@@ -30,6 +30,7 @@ pip install -r requirements.txt
 pip install -e .
 cp .env.example .env
 mkdir -p data/media
+alembic upgrade head
 PYTHONPATH=backend uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
@@ -51,14 +52,21 @@ PYTHONPATH=backend python -m app analyze "https://www.youtube.com/watch?v=VIDEO_
 
 | Zmienna | Opis |
 |---------|------|
-| `LLM_PROVIDER` | `openai` / `anthropic` / `cursor` |
+| `LLM_PROVIDER` | `openai` / `anthropic` / `openrouter` (`cursor` tylko jako stary alias) |
 | `OPENAI_API_KEY` | Klucz OpenAI |
 | `ANTHROPIC_API_KEY` | Klucz Anthropic |
-| `CURSOR_API_KEY` | Klucz OpenAI-compatible (jak w Cursor BYOK) |
-| `OPENAI_MODEL` / `ANTHROPIC_MODEL` / `CURSOR_MODEL` | modele per provider |
+| `OPENROUTER_API_KEY` | Klucz OpenRouter; nie trafia do UI ani Vercela |
+| `OPENAI_MODEL` / `ANTHROPIC_MODEL` / `OPENROUTER_MODEL` | modele per provider |
+| `SINGLE_USER_EMAIL` | Jedyny adres, dla którego rejestracja jest otwarta w produkcji |
 | `WHISPER_MODEL` | `tiny`/`base`/`small`/`medium`/`large-v3` (dla PL produkcyjnie ≥ `small`) |
 | `WHISPER_DEVICE` | `cpu` lub `cuda` |
 | `WHISPER_LANGUAGE` | domyślnie `pl` |
+| `DATABASE_URL` | PostgreSQL używany przez API i workera |
+| `RESEND_API_KEY` / `RESEND_FROM_EMAIL` | e-maile weryfikacji i resetu |
+| `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | ochrona otwartej rejestracji |
+| `ADMIN_API_KEY` | osobny klucz endpointów administracyjnych |
+
+Konto musi zostać potwierdzone e-mailem. Sesja działa wyłącznie przez cookie HttpOnly; klucze LLM są wspólne, serwerowe i nie są ustawiane w przeglądarce.
 
 ## Testy
 

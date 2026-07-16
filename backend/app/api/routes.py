@@ -16,12 +16,13 @@ from app.cache import clone_source_from_cache, extract_youtube_video_id, find_ca
 from app.config import get_settings
 from app.db import get_db
 from app.jobs import run_in_background
-from app.limits import enforce_daily_source_limit
+from app.limits import enforce_daily_source_limit, enforce_question_limit, estimate_summary_calls, llm_allowed, quota_snapshot
 from app.llm.qa import answer_question
 from app.llm.summarize import summarize_segments
-from app.llm_settings_store import llm_status, save_llm_overrides
+from app.llm_settings_store import llm_status
+from app.ssrf import validate_public_url
 from app.share import make_share_slug
-from app.models import Ask, Segment, Source, Summary
+from app.models import Ask, Segment, Source, Summary, UsageEvent
 from app.pipeline import (
     process_article_source,
     process_podcast_source,
@@ -31,13 +32,13 @@ from app.pipeline import (
     reprocess_source_from_media,
 )
 from app.ingest.podcast import fetch_rss_episodes
+from app.ingest.youtube import expand_youtube_urls
 from app.schemas import (
     AskOut,
     AskRequest,
     AskResponse,
     HealthResponse,
     JobStatusOut,
-    LlmSettingsUpdate,
     PlaylistCreateRequest,
     PodcastRssCreateRequest,
     PodcastEpisodeCreateRequest,
@@ -63,25 +64,36 @@ def _to_source_out(source: Source, segment_count: int | None = None) -> SourceOu
             segment_count = len(source.segments)
         else:
             segment_count = 0
+    tags = []
+    try:
+        tags = [tag.name for tag in (source.tags or [])]
+    except Exception:
+        tags = []
     return SourceOut(
         id=source.id,
-        user_id=source.user_id,
         source_type=source.source_type,
         title=source.title,
         url=source.url,
         video_id=source.video_id,
         language=source.language,
         status=source.status,
+        progress=float(getattr(source, "progress", 0) or 0),
+        progress_message=getattr(source, "progress_message", "") or "",
         error=source.error,
         error_code=source.error_code,
         error_hint=source.error_hint,
         duration_seconds=source.duration_seconds,
         transcript_method=source.transcript_method,
+        description=getattr(source, "description", None),
+        author=getattr(source, "author", None),
+        show_title=getattr(source, "show_title", None),
+        published_at=getattr(source, "published_at", None),
         created_at=source.created_at,
         updated_at=source.updated_at,
         segment_count=segment_count,
         share_slug=source.share_slug,
         is_public=bool(source.is_public),
+        tags=tags,
     )
 
 
@@ -94,7 +106,7 @@ def _get_owned_source(
     load_summaries: bool = False,
 ) -> Source:
     stmt = select(Source).where(Source.id == source_id, Source.user_id == user_id)
-    options = []
+    options = [selectinload(Source.tags)]
     if load_segments:
         options.append(selectinload(Source.segments))
     if load_summaries:
@@ -128,12 +140,6 @@ def get_llm_status() -> dict:
     return llm_status()
 
 
-@protected.put("/llm/settings")
-def update_llm_settings(payload: LlmSettingsUpdate) -> dict:
-    save_llm_overrides(payload.model_dump(exclude_none=True))
-    return llm_status()
-
-
 @protected.get("/sources", response_model=list[SourceOut])
 def list_sources(
     db: Session = Depends(get_db),
@@ -141,7 +147,10 @@ def list_sources(
 ) -> list[SourceOut]:
     sources = list(
         db.scalars(
-            select(Source).where(Source.user_id == user_id).order_by(Source.id.desc())
+            select(Source)
+            .where(Source.user_id == user_id)
+            .options(selectinload(Source.tags))
+            .order_by(Source.id.desc())
         ).all()
     )
     counts = _segment_counts(db, [s.id for s in sources])
@@ -186,7 +195,9 @@ def get_status(
         error=source.error,
         error_code=source.error_code,
         error_hint=source.error_hint,
-        progress=progress_map.get(source.status, source.status),
+        progress=getattr(source, "progress_message", None) or progress_map.get(source.status, source.status),
+        progress_pct=float(getattr(source, "progress", 0) or 0),
+        progress_message=getattr(source, "progress_message", "") or "",
     )
 
 
@@ -245,7 +256,9 @@ def create_text_source(
     db: Session = Depends(get_db),
     user_id: str = Depends(get_optional_user_id),
 ) -> SourceOut:
-    enforce_daily_source_limit(db, user_id, get_settings())
+    enforce_daily_source_limit(db, user_id, get_settings(), source_type="text")
+    if len(payload.text.encode("utf-8")) > get_settings().max_text_bytes:
+        raise HTTPException(status_code=413, detail="Text exceeds 1 MB limit")
     source = Source(
         user_id=user_id,
         source_type="text",
@@ -286,20 +299,22 @@ async def upload_source(
     user_id: str = Depends(get_optional_user_id),
 ) -> SourceOut:
     settings = get_settings()
-    enforce_daily_source_limit(db, user_id, settings)
     original_name = file.filename or "upload.bin"
     suffix = Path(original_name).suffix.lower()
-    if suffix not in {".pdf", ".txt", ".md", ".epub", ".mp3", ".wav", ".m4a", ".m4b", ".webm", ".ogg", ".opus", ".flac", ".aac", ".mp4", ".mkv"}:
+    if suffix not in {".pdf", ".txt", ".md", ".docx", ".epub", ".mp3", ".wav", ".m4a", ".m4b", ".webm", ".ogg", ".opus", ".flac", ".aac", ".mp4", ".mkv"}:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {suffix}")
 
     if suffix == ".pdf":
         source_type = "pdf"
     elif suffix == ".epub":
         source_type = "book"
+    elif suffix == ".docx":
+        source_type = "document"
     elif suffix in {".mp3", ".wav", ".m4a", ".m4b", ".webm", ".ogg", ".opus", ".flac", ".aac", ".mp4", ".mkv"}:
         source_type = "audiobook" if suffix == ".m4b" else "audio"
     else:
         source_type = "text"
+    enforce_daily_source_limit(db, user_id, settings, source_type=source_type)
     source = Source(
         user_id=user_id,
         source_type=source_type,
@@ -314,8 +329,19 @@ async def upload_source(
     dest_dir = settings.media_dir / f"source_{source.id}"
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / original_name
-    with dest.open("wb") as out:
-        shutil.copyfileobj(file.file, out)
+    written = 0
+    try:
+        with dest.open("wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                written += len(chunk)
+                if written > settings.max_upload_bytes:
+                    raise HTTPException(status_code=413, detail="Upload exceeds 100 MB limit")
+                out.write(chunk)
+    except Exception:
+        db.delete(source)
+        db.commit()
+        shutil.rmtree(dest_dir, ignore_errors=True)
+        raise
     source.file_path = str(dest)
     db.commit()
 
@@ -336,14 +362,26 @@ def reprocess_source(
     source.error = None
     source.error_code = None
     source.error_hint = None
+    source.attempts = 0
+    source.next_run_at = None
+    source.claimed_at = None
+    source.progress = 0.0
+    source.progress_message = "reprocess_queued"
     db.commit()
-    run_in_background(
-        reprocess_source_from_media,
-        source.id,
-        prefer_captions=payload.prefer_captions,
-        force_asr=payload.force_asr,
-        auto_summarize=payload.auto_summarize,
-    )
+    if source.source_type == "youtube":
+        run_in_background(process_youtube_source, source.id, auto_summarize=payload.auto_summarize)
+    elif source.source_type == "article":
+        run_in_background(process_article_source, source.id, auto_summarize=payload.auto_summarize)
+    elif source.source_type == "podcast":
+        run_in_background(process_podcast_source, source.id, auto_summarize=payload.auto_summarize)
+    elif source.file_path:
+        run_in_background(process_upload_source, source.id, auto_summarize=payload.auto_summarize)
+    else:
+        run_in_background(
+            reprocess_source_from_media, source.id,
+            prefer_captions=payload.prefer_captions, force_asr=payload.force_asr,
+            auto_summarize=payload.auto_summarize,
+        )
     db.refresh(source)
     return _to_source_out(source, segment_count=_segment_counts(db, [source.id]).get(source.id, 0))
 
@@ -360,7 +398,13 @@ def summarize_source(
         raise HTTPException(status_code=409, detail=f"Source not ready (status={source.status})")
 
     segs = [(s.start, s.end, s.text) for s in source.segments]
-    content = summarize_segments(segs, title=source.title, kind=payload.kind)
+    settings = get_settings()
+    required_calls = estimate_summary_calls(segs, settings)
+    if llm_allowed(db, settings, required_calls):
+        db.add(UsageEvent(user_id=user_id, event_type="llm_call", source_id=source.id, units=required_calls))
+    else:
+        settings = settings.model_copy(update={"openai_api_key": "", "anthropic_api_key": "", "openrouter_api_key": "", "cursor_api_key": ""})
+    content = summarize_segments(segs, title=source.title, kind=payload.kind, settings=settings)
     summary = Summary(source_id=source.id, kind=payload.kind, content=content)
     db.add(summary)
     db.commit()
@@ -380,9 +424,16 @@ def ask(
     if source.status != "ready":
         raise HTTPException(status_code=409, detail=f"Source not ready (status={source.status})")
 
+    enforce_question_limit(db, user_id, get_settings())
     segs = [(s.start, s.end, s.text) for s in source.segments]
-    answer, citations = answer_question(payload.question, segs, title=source.title)
+    settings = get_settings()
+    if llm_allowed(db, settings):
+        db.add(UsageEvent(user_id=user_id, event_type="llm_call", source_id=source.id))
+    else:
+        settings = settings.model_copy(update={"openai_api_key": "", "anthropic_api_key": "", "openrouter_api_key": "", "cursor_api_key": ""})
+    answer, citations = answer_question(payload.question, segs, title=source.title, settings=settings)
     db.add(Ask(source_id=source.id, question=payload.question, answer=answer))
+    db.add(UsageEvent(user_id=user_id, event_type="question", source_id=source.id))
     db.commit()
     return AskResponse(answer=answer, citations=citations, source_id=source.id)
 
@@ -411,13 +462,11 @@ def get_quota(
     user_id: str = Depends(get_optional_user_id),
 ) -> QuotaOut:
     settings = get_settings()
-    limit = settings.daily_source_limit
-    since = datetime.now(timezone.utc) - timedelta(days=1)
-    used = db.scalar(
-        select(func.count()).select_from(Source).where(Source.user_id == user_id, Source.created_at >= since)
-    ) or 0
-    remaining = max(0, limit - used) if limit > 0 else 10**9
-    return QuotaOut(used=int(used), limit=int(limit), remaining=int(remaining))
+    counters = quota_snapshot(db, user_id, settings)
+    def counter(name: str):
+        used, limit = counters[name]
+        return {"used": used, "limit": limit, "remaining": max(0, limit - used) if limit > 0 else 10**9}
+    return QuotaOut(sources=counter("sources"), questions=counter("questions"), global_llm=counter("global_llm"))
 
 
 @protected.post("/sources/playlist", response_model=list[SourceOut])
@@ -516,15 +565,55 @@ def export_markdown(
 
 
 
+
+
+@protected.get("/sources/{source_id}/export.docx")
+def export_source_docx(
+    source_id: int,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_optional_user_id),
+):
+    from io import BytesIO
+    from docx import Document
+    from fastapi.responses import StreamingResponse
+
+    source = _get_owned_source(db, source_id, user_id, load_segments=True, load_summaries=True)
+    doc = Document()
+    doc.add_heading(source.title or "Source", level=1)
+    if source.show_title:
+        doc.add_paragraph(f"Show: {source.show_title}")
+    if source.author:
+        doc.add_paragraph(f"Author: {source.author}")
+    for summary in source.summaries:
+        doc.add_heading(summary.kind, level=2)
+        doc.add_paragraph(summary.content)
+    doc.add_heading("Transcript", level=2)
+    for seg in source.segments:
+        doc.add_paragraph(f"[{int(seg.start)//60:02d}:{int(seg.start)%60:02d}] {seg.text}")
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    filename = f"source-{source.id}.docx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @protected.post("/sources/article", response_model=SourceOut)
 def create_article_source(
     payload: ArticleCreateRequest,
     db: Session = Depends(get_db),
     user_id: str = Depends(get_optional_user_id),
 ) -> SourceOut:
+    try:
+        validate_public_url(payload.url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if extract_youtube_video_id(payload.url):
         raise HTTPException(status_code=400, detail="Use /sources/youtube for YouTube URLs")
-    enforce_daily_source_limit(db, user_id, get_settings())
+    enforce_daily_source_limit(db, user_id, get_settings(), source_type="article")
     source = Source(
         user_id=user_id,
         source_type="article",
@@ -546,9 +635,13 @@ def create_podcast_episode(
     db: Session = Depends(get_db),
     user_id: str = Depends(get_optional_user_id),
 ) -> SourceOut:
+    try:
+        validate_public_url(payload.url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if extract_youtube_video_id(payload.url):
         raise HTTPException(status_code=400, detail="Use /sources/youtube for YouTube URLs")
-    enforce_daily_source_limit(db, user_id, get_settings())
+    enforce_daily_source_limit(db, user_id, get_settings(), source_type="podcast")
     source = Source(
         user_id=user_id,
         source_type="podcast",
@@ -571,12 +664,16 @@ def create_podcast_rss(
     user_id: str = Depends(get_optional_user_id),
 ) -> list[SourceOut]:
     settings = get_settings()
+    try:
+        validate_public_url(payload.feed_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     episodes = fetch_rss_episodes(payload.feed_url, max_episodes=payload.max_episodes)
     if not episodes:
         raise HTTPException(status_code=400, detail="No audio episodes found in RSS feed")
     created: list[SourceOut] = []
     for episode in episodes:
-        enforce_daily_source_limit(db, user_id, settings)
+        enforce_daily_source_limit(db, user_id, settings, source_type="podcast")
         source = Source(
             user_id=user_id,
             source_type="podcast",
@@ -584,6 +681,10 @@ def create_podcast_rss(
             url=episode.audio_url,
             language=payload.language,
             status="pending",
+            show_title=episode.show_title,
+            description=episode.description,
+            author=episode.author,
+            published_at=episode.published_at,
         )
         db.add(source)
         db.commit()

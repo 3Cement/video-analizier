@@ -25,11 +25,6 @@ const el = {
   retryBtn: document.getElementById("retry-btn"),
   forceAsrBtn: document.getElementById("force-asr-btn"),
   deleteBtn: document.getElementById("delete-btn"),
-  llmToggle: document.getElementById("llm-toggle"),
-  llmSettings: document.getElementById("llm-settings"),
-  llmForm: document.getElementById("llm-form"),
-  llmProvider: document.getElementById("llm-provider"),
-  llmStatusLine: document.getElementById("llm-status-line"),
   shareBtn: document.getElementById("share-btn"),
   extractFactsBtn: document.getElementById("extract-facts-btn"),
   summarizeBtn: document.getElementById("summarize-btn"),
@@ -132,7 +127,11 @@ function renderMarkdown(text, videoUrl = "") {
   return out.join("");
 }
 
+function authHeaders() { return {}; }
+
 async function api(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  options = { ...options, headers, credentials: "same-origin" };
   const res = await fetch(`/api${path}`, options);
   if (!res.ok) {
     let detail = res.statusText;
@@ -223,6 +222,7 @@ async function pollJobStatus() {
   }
   const status = await api(`/sources/${state.selectedId}/status`);
   updateSteps(status.status);
+      if (typeof status.progress_pct === "number") setProgress(status.progress_pct, status.progress_message || status.progress);
   const item = state.sources.find((s) => s.id === state.selectedId);
   if (item) item.status = status.status;
   renderSources();
@@ -330,6 +330,15 @@ ${factsSummary.content}`;
   el.exportMdBtn.hidden = detail.status !== "ready";
   if (el.extractFactsBtn) el.extractFactsBtn.hidden = detail.status !== "ready";
   if (el.summarizeBtn) el.summarizeBtn.hidden = detail.status !== "ready";
+  const docxBtn = document.getElementById("export-docx-btn");
+  if (docxBtn) docxBtn.hidden = detail.status !== "ready";
+  const tagForm = document.getElementById("tag-form");
+  const noteForm = document.getElementById("note-form");
+  if (tagForm) tagForm.hidden = detail.status !== "ready";
+  if (noteForm) noteForm.hidden = detail.status !== "ready";
+  if (detail.status === "ready") loadNotes(detail.id);
+  const tagsLine = document.getElementById("tags-line");
+  if (tagsLine) tagsLine.textContent = (detail.tags || []).map((x) => `#${x}`).join(" ");
   el.deleteBtn.hidden = false;
   if (detail.share_slug) {
     el.shareUrlLine.hidden = false;
@@ -349,6 +358,7 @@ ${factsSummary.content}`;
   }
 
   updateSteps(detail.status);
+  if (typeof detail.progress === "number") setProgress(detail.progress, detail.progress_message);
   if (detail.status === "ready") {
     setStatus("Podsumowanie gotowe.");
     setBusy(false);
@@ -536,83 +546,10 @@ document.getElementById("refresh-btn").addEventListener("click", () => {
   refreshSources().catch((e) => setStatus(e.message));
 });
 
-function syncProviderFields() {
-  const provider = el.llmProvider.value;
-  document.querySelectorAll(".provider-fields").forEach((block) => {
-    block.hidden = block.dataset.provider !== provider;
-  });
-}
-
-async function loadLlmStatus() {
-  const status = await api("/llm/status");
-  el.llmProvider.value = status.provider || "openai";
-  document.getElementById("openai-model").value = status.models?.openai || "";
-  document.getElementById("anthropic-model").value = status.models?.anthropic || "";
-  document.getElementById("cursor-model").value = status.models?.cursor || "";
-  document.getElementById("cursor-base-url").value = status.base_urls?.cursor || "";
-  syncProviderFields();
-  const flags = status.configured || {};
-  const labels = [
-    flags.openai ? "OpenAI ✓" : "OpenAI —",
-    flags.anthropic ? "Anthropic ✓" : "Anthropic —",
-    flags.cursor ? "Cursor ✓" : "Cursor —",
-  ];
-  el.llmStatusLine.textContent = `Aktywny: ${status.provider}. ${labels.join(" · ")}. Klucze nie są pokazywane po zapisaniu.`;
-}
-
-el.llmToggle.addEventListener("click", () => {
-  el.llmSettings.open = !el.llmSettings.open;
-});
-
-el.llmProvider.addEventListener("change", syncProviderFields);
-
-el.llmForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const provider = el.llmProvider.value;
-  const payload = { llm_provider: provider };
-  if (provider === "openai") {
-    const key = document.getElementById("openai-api-key").value.trim();
-    const model = document.getElementById("openai-model").value.trim();
-    if (key) payload.openai_api_key = key;
-    if (model) payload.openai_model = model;
-  } else if (provider === "anthropic") {
-    const key = document.getElementById("anthropic-api-key").value.trim();
-    const model = document.getElementById("anthropic-model").value.trim();
-    if (key) payload.anthropic_api_key = key;
-    if (model) payload.anthropic_model = model;
-  } else {
-    const key = document.getElementById("cursor-api-key").value.trim();
-    const model = document.getElementById("cursor-model").value.trim();
-    const base = document.getElementById("cursor-base-url").value.trim();
-    if (key) payload.cursor_api_key = key;
-    if (model) payload.cursor_model = model;
-    if (base) payload.cursor_base_url = base;
-  }
-  try {
-    await api("/llm/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    document.getElementById("openai-api-key").value = "";
-    document.getElementById("anthropic-api-key").value = "";
-    document.getElementById("cursor-api-key").value = "";
-    await loadLlmStatus();
-    setStatus(`Zapisano ustawienia LLM (${provider}).`);
-  } catch (err) {
-    setStatus(err.message);
-  }
-});
-
-
 async function loadQuota() {
   try {
     const q = await api("/quota");
-    if (!q.limit || q.limit <= 0) {
-      el.quotaLine.textContent = `Dziś: ${q.used} analiz (bez limitu).`;
-    } else {
-      el.quotaLine.textContent = `Limit dzienny: ${q.used}/${q.limit} (pozostało ${q.remaining}).`;
-    }
+    el.quotaLine.textContent = `Źródła: ${q.sources.used}/${q.sources.limit} · pytania: ${q.questions.used}/${q.questions.limit}`;
   } catch (_) {
     el.quotaLine.textContent = "";
   }
@@ -634,7 +571,7 @@ el.shareBtn.addEventListener("click", async () => {
 el.exportMdBtn.addEventListener("click", async () => {
   if (!state.selectedId) return;
   try {
-    const res = await fetch(`/api/sources/${state.selectedId}/export.md`);
+    const res = await fetch(`/api/sources/${state.selectedId}/export.md`, { headers: authHeaders() });
     if (!res.ok) throw new Error("Nie udało się wyeksportować");
     const blob = await res.blob();
     const a = document.createElement("a");
@@ -672,7 +609,6 @@ document.getElementById("playlist-form").addEventListener("submit", async (e) =>
 });
 
 refreshSources()
-  .then(() => loadLlmStatus())
   .then(() => loadQuota())
   .then(() => {
     const ready = state.sources.find((s) => s.status === "ready");
@@ -769,3 +705,246 @@ async function runSummarizeKind(kind) {
 
 document.getElementById("extract-facts-btn")?.addEventListener("click", () => runSummarizeKind("facts"));
 document.getElementById("summarize-btn")?.addEventListener("click", () => runSummarizeKind("briefing"));
+
+
+function setProgress(pct, label) {
+  const wrap = document.getElementById("progress-wrap");
+  const bar = document.getElementById("progress-bar");
+  const lab = document.getElementById("progress-label");
+  if (!wrap || !bar) return;
+  if (pct == null) {
+    wrap.hidden = true;
+    return;
+  }
+  wrap.hidden = false;
+  bar.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+  if (lab) lab.textContent = label || `${Math.round(pct)}%`;
+}
+
+const _origPoll = typeof pollJobStatus === "function" ? pollJobStatus : null;
+
+document.getElementById("auth-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const email = document.getElementById("auth-email").value.trim();
+  const password = document.getElementById("auth-password").value;
+  try {
+    const data = await api("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    document.getElementById("auth-status").textContent = `Zalogowano: ${data.email}`;
+    document.getElementById("auth-summary").textContent = `Konto: ${data.email}`;
+    await refreshSources();
+    await loadCollections();
+  } catch (err) {
+    document.getElementById("auth-status").textContent = err.message;
+  }
+});
+
+document.getElementById("auth-register")?.addEventListener("click", async () => {
+  const email = document.getElementById("auth-email").value.trim();
+  const password = document.getElementById("auth-password").value;
+  try {
+    const turnstileToken = window.turnstile?.getResponse() || "";
+    await api("/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, turnstile_token: turnstileToken }),
+    });
+    document.getElementById("auth-status").textContent = "Sprawdź skrzynkę i potwierdź adres e-mail.";
+    window.turnstile?.reset();
+  } catch (err) {
+    document.getElementById("auth-status").textContent = err.message;
+  }
+});
+
+document.getElementById("auth-logout")?.addEventListener("click", async () => {
+  try {
+    await api("/auth/logout", { method: "POST" });
+  } catch (_) {
+    /* ignore */
+  }
+  document.getElementById("auth-status").textContent = "Wylogowano.";
+  document.getElementById("auth-summary").textContent = "Konto";
+  state.sources = [];
+  renderSourceList();
+});
+
+document.getElementById("search-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const q = document.getElementById("search-q").value.trim();
+  const list = document.getElementById("search-hits");
+  if (!q) {
+    list.hidden = true;
+    return;
+  }
+  try {
+    const data = await api(`/library/search?q=${encodeURIComponent(q)}`);
+    list.hidden = false;
+    list.innerHTML = (data.hits || [])
+      .map(
+        (h) => `<li><button type="button" data-id="${h.source_id}" class="source-btn">
+          <strong>${escapeHtml(h.title || "Bez tytułu")}</strong>
+          <span class="muted">${escapeHtml(h.match_kind)} · ${escapeHtml(h.source_type)}</span>
+          <span>${escapeHtml(h.snippet || "")}</span>
+        </button></li>`
+      )
+      .join("") || "<li class='muted'>Brak wyników</li>";
+    list.querySelectorAll("button[data-id]").forEach((btn) => {
+      btn.addEventListener("click", () => selectSource(Number(btn.dataset.id)));
+    });
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
+
+async function loadCollections() {
+  const list = document.getElementById("collection-list");
+  if (!list) return;
+  try {
+    const rows = await api("/library/collections");
+    list.innerHTML = rows
+      .map((c) => `<li title="${c.source_ids.length} źródeł">${escapeHtml(c.name)} (${c.source_ids.length})</li>`)
+      .join("");
+  } catch (_) {
+    list.innerHTML = "";
+  }
+}
+
+document.getElementById("collection-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = document.getElementById("collection-name").value.trim();
+  if (!name) return;
+  try {
+    await api("/library/collections", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    document.getElementById("collection-name").value = "";
+    await loadCollections();
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
+
+document.getElementById("tag-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!state.selectedId) return;
+  const name = document.getElementById("tag-name").value.trim();
+  if (!name) return;
+  try {
+    const tags = await api(`/library/sources/${state.selectedId}/tags`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    document.getElementById("tags-line").textContent = tags.map((t) => `#${t.name}`).join(" ");
+    document.getElementById("tag-name").value = "";
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
+
+document.getElementById("note-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!state.selectedId) return;
+  const body = document.getElementById("note-body").value.trim();
+  if (!body) return;
+  try {
+    await api(`/library/sources/${state.selectedId}/notes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body }),
+    });
+    document.getElementById("note-body").value = "";
+    await loadNotes(state.selectedId);
+  } catch (err) {
+    setStatus(err.message);
+  }
+});
+
+async function loadNotes(sourceId) {
+  const list = document.getElementById("notes-list");
+  if (!list) return;
+  try {
+    const notes = await api(`/library/sources/${sourceId}/notes`);
+    list.innerHTML = notes.map((n) => `<li>${escapeHtml(n.body)}</li>`).join("");
+  } catch (_) {
+    list.innerHTML = "";
+  }
+}
+
+document.getElementById("export-docx-btn")?.addEventListener("click", async () => {
+  if (!state.selectedId) return;
+  const headers = authHeaders();
+  const res = await fetch(`/api/sources/${state.selectedId}/export.docx`, { headers });
+  if (!res.ok) {
+    setStatus("Eksport DOCX nieudany");
+    return;
+  }
+  const blob = await res.blob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `source-${state.selectedId}.docx`;
+  a.click();
+});
+
+api("/auth/me").then((me) => {
+  document.getElementById("auth-summary").textContent = `Konto: ${me.email}`;
+  document.getElementById("auth-status").textContent = `Zalogowano: ${me.email}`;
+  return loadCollections();
+}).catch(() => {});
+
+api("/auth/config").then((config) => {
+  if (!config.turnstile_site_key) return;
+  const render = () => {
+    if (window.turnstile) window.turnstile.render("#turnstile-widget", { sitekey: config.turnstile_site_key });
+    else window.setTimeout(render, 100);
+  };
+  render();
+}).catch(() => {});
+
+
+document.getElementById("password-reset-request")?.addEventListener("click", async () => {
+  const email = document.getElementById("auth-email").value.trim();
+  const status = document.getElementById("auth-status");
+  try {
+    await api("/auth/password-reset/request", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    status.textContent = "Jeśli konto istnieje, wyślemy instrukcję resetu.";
+  } catch (err) {
+    status.textContent = err.message;
+  }
+});
+
+document.getElementById("password-reset-form")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const token = document.getElementById("reset-token").value.trim();
+  const newPassword = document.getElementById("reset-password").value;
+  const status = document.getElementById("auth-status");
+  try {
+    const data = await api("/auth/password-reset/confirm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, new_password: newPassword }),
+    });
+    status.textContent = `Hasło zmienione. Zalogowano: ${data.email}`;
+    document.getElementById("auth-summary").textContent = `Konto: ${data.email}`;
+    await refreshSources();
+  } catch (err) {
+    status.textContent = err.message;
+  }
+});
+
+const params = new URLSearchParams(window.location.search);
+if (params.get("reset_token")) {
+  const input = document.getElementById("reset-token");
+  if (input) input.value = params.get("reset_token");
+  const box = document.querySelector(".auth-box");
+  if (box) box.open = true;
+}
