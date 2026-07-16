@@ -1,0 +1,7 @@
+# Gdy DOMAIN jest ustawiony (np. DOMAIN=app.twoja-domena.pl), Caddy sam
+# wystawia certyfikat Let's Encrypt i serwuje HTTPS.
+# Gdy DOMAIN jest pusty, nasłuchuje na :80 (HTTP po adresie IP).
+{$DOMAIN::80} {
+	encode gzip
+	reverse_proxy api:8000
+}
