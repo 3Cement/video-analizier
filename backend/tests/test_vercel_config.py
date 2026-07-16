@@ -5,6 +5,7 @@ from pathlib import Path
 def test_vercel_rewrites_every_path_to_vps_without_cache():
     config = json.loads((Path(__file__).parents[2] / "vercel.json").read_text())
 
+    assert config["framework"] is None
     assert config["rewrites"] == [
         {"source": "/:path*", "destination": "http://57.131.51.89/:path*"}
     ]
