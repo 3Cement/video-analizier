@@ -19,7 +19,7 @@ docker compose up --build
 ```
 
 UI: http://localhost:8000  
-Deploy produkcyjny: patrz [DEPLOY.md](DEPLOY.md) (VPS + PostgreSQL + worker + Caddy).
+Deploy produkcyjny: patrz [DEPLOY.md](DEPLOY.md) (współdzielony OVH + nginx + PostgreSQL + worker + Caddy).
 
 ### Dev bez Dockera
 

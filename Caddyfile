@@ -1,12 +1,13 @@
-# Gdy DOMAIN jest ustawiony (np. DOMAIN=app.twoja-domena.pl), Caddy sam
-# wystawia certyfikat Let's Encrypt i serwuje HTTPS.
-# Gdy DOMAIN jest pusty, nasłuchuje na :80 (HTTP po adresie IP).
+# Na współdzielonym OVH uruchamiamy DOMAIN=:80, a port kontenera 80 jest
+# publikowany wyłącznie jako 127.0.0.1:8082 za istniejącym nginx.
+# Na samodzielnym VPS DOMAIN może być nazwą domeny, a Caddy obsłuży HTTPS.
 {$DOMAIN::80} {
 	encode gzip
 	request_body {
 		max_size 100MB
 	}
 	header {
+		Cache-Control "private, no-store, max-age=0"
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"

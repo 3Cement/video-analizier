@@ -64,7 +64,9 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
-    ports: ["80:80", "443:443"]
+    ports:
+      - "${CADDY_HTTP_BIND:-0.0.0.0:80}:80"
+      - "${CADDY_HTTPS_BIND:-0.0.0.0:443}:443"
     environment: ["DOMAIN=${DOMAIN:?DOMAIN is required}"]
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro

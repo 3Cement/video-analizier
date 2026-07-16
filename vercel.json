@@ -4,11 +4,12 @@
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "private, no-store, max-age=0" }
+        { "key": "Cache-Control", "value": "private, no-store, max-age=0" },
+        { "key": "x-vercel-enable-rewrite-caching", "value": "0" }
       ]
     }
   ],
   "rewrites": [
-    { "source": "/:path*", "destination": "http://IP_VPS/:path*" }
+    { "source": "/:path*", "destination": "http://57.131.51.89/:path*" }
   ]
 }

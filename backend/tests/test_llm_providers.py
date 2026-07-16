@@ -60,6 +60,7 @@ def test_openrouter_uses_openai_compatible():
 def test_cursor_is_a_legacy_alias_for_openrouter():
     settings = Settings(
         llm_provider="cursor",
+        openrouter_api_key="",
         cursor_api_key="legacy-key",
         cursor_base_url="https://legacy.example/v1",
         cursor_model="legacy-model",
