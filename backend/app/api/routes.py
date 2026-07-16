@@ -403,7 +403,7 @@ def summarize_source(
     if llm_allowed(db, settings, required_calls):
         db.add(UsageEvent(user_id=user_id, event_type="llm_call", source_id=source.id, units=required_calls))
     else:
-        settings = settings.model_copy(update={"openai_api_key": "", "anthropic_api_key": "", "openrouter_api_key": "", "cursor_api_key": ""})
+        settings = settings.model_copy(update={"llm_provider": "disabled", "openai_api_key": "", "anthropic_api_key": "", "openrouter_api_key": "", "cursor_api_key": ""})
     content = summarize_segments(segs, title=source.title, kind=payload.kind, settings=settings)
     summary = Summary(source_id=source.id, kind=payload.kind, content=content)
     db.add(summary)
@@ -430,7 +430,7 @@ def ask(
     if llm_allowed(db, settings):
         db.add(UsageEvent(user_id=user_id, event_type="llm_call", source_id=source.id))
     else:
-        settings = settings.model_copy(update={"openai_api_key": "", "anthropic_api_key": "", "openrouter_api_key": "", "cursor_api_key": ""})
+        settings = settings.model_copy(update={"llm_provider": "disabled", "openai_api_key": "", "anthropic_api_key": "", "openrouter_api_key": "", "cursor_api_key": ""})
     answer, citations = answer_question(payload.question, segs, title=source.title, settings=settings)
     db.add(Ask(source_id=source.id, question=payload.question, answer=answer))
     db.add(UsageEvent(user_id=user_id, event_type="question", source_id=source.id))

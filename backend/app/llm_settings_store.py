@@ -24,6 +24,7 @@ def llm_status(settings: Settings | None = None) -> dict[str, Any]:
         "anthropic": bool(settings.anthropic_api_key.strip()),
         "openrouter": openrouter_configured,
         "cursor": openrouter_configured,
+        "ollama": bool(settings.ollama_base_url.strip() and settings.ollama_model.strip()),
     }
     return {
         "provider": provider,
@@ -34,11 +35,13 @@ def llm_status(settings: Settings | None = None) -> dict[str, Any]:
             "anthropic": settings.anthropic_model,
             "openrouter": resolve_model(settings) if provider == "openrouter" else settings.openrouter_model,
             "cursor": settings.cursor_model,
+            "ollama": settings.ollama_model,
         },
         "base_urls": {
             "openai": settings.openai_base_url,
             "anthropic": settings.anthropic_base_url,
             "openrouter": settings.openrouter_base_url or settings.cursor_base_url,
             "cursor": settings.cursor_base_url,
+            "ollama": settings.ollama_base_url,
         },
     }
