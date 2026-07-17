@@ -150,8 +150,13 @@ def _base_ydl_opts() -> dict[str, Any]:
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
-        # android_vr often works on restricted/datacenter IPs for public videos
-        "extractor_args": {"youtube": {"player_client": ["android_vr", "android", "web"]}},
+        # A watch URL containing list= must still resolve to exactly one video.
+        "noplaylist": True,
+        # The provider runs as a private Compose service and supplies YouTube's
+        # proof-of-origin tokens without account cookies.
+        "extractor_args": {
+            "youtubepot-bgutilhttp": {"base_url": ["http://pot-provider:4416"]},
+        },
     }
     cookies = settings.ytdlp_cookies.strip()
     if cookies:
