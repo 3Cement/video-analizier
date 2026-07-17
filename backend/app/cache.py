@@ -20,6 +20,14 @@ def extract_youtube_video_id(url: str) -> Optional[str]:
     return match.group(1) if match else None
 
 
+def canonical_youtube_video_url(url: str) -> str:
+    """Return a watch URL for one video, dropping playlist/tracking parameters."""
+    video_id = extract_youtube_video_id(url)
+    if not video_id:
+        return url
+    return f"https://www.youtube.com/watch?v={video_id}"
+
+
 def find_cached_source(db: Session, video_id: str, user_id: str) -> Optional[Source]:
     return db.scalar(
         select(Source)

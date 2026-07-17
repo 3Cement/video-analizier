@@ -53,10 +53,14 @@ def test_youtube_create_queues_job(client):
     with patch("app.api.routes.run_in_background") as bg:
         res = client.post(
             "/api/sources/youtube",
-            json={"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "auto_summarize": False},
+            json={
+                "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=example&index=88",
+                "auto_summarize": False,
+            },
         )
         assert res.status_code == 200
         assert res.json()["source_type"] == "youtube"
+        assert res.json()["url"] == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
         assert bg.called
 
 

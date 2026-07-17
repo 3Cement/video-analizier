@@ -1,13 +1,18 @@
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.cache import clone_source_from_cache, extract_youtube_video_id
+from app.cache import canonical_youtube_video_url, clone_source_from_cache, extract_youtube_video_id
 from app.models import Segment, Source, Summary
 
 
 def test_extract_youtube_video_id():
     url = "https://www.youtube.com/watch?v=tPsVjYR0tGY"
     assert extract_youtube_video_id(url) == "tPsVjYR0tGY"
+
+
+def test_canonical_youtube_video_url_drops_playlist_parameters():
+    url = "https://youtube.com/watch?v=vgPWoPjLQIE&list=example&index=88"
+    assert canonical_youtube_video_url(url) == "https://www.youtube.com/watch?v=vgPWoPjLQIE"
 
 
 def test_clone_source_from_cache(db_session):

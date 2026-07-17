@@ -12,7 +12,12 @@ from sqlalchemy.orm import Session, selectinload
 
 from app import __version__
 from app.auth import get_optional_user_id, verify_api_key
-from app.cache import clone_source_from_cache, extract_youtube_video_id, find_cached_source
+from app.cache import (
+    canonical_youtube_video_url,
+    clone_source_from_cache,
+    extract_youtube_video_id,
+    find_cached_source,
+)
 from app.config import get_settings
 from app.db import get_db
 from app.jobs import run_in_background
@@ -230,7 +235,7 @@ def create_youtube_source(
         user_id=user_id,
         source_type="youtube",
         title="YouTube video",
-        url=payload.url,
+        url=canonical_youtube_video_url(payload.url),
         video_id=video_id,
         language=payload.language,
         status="pending",

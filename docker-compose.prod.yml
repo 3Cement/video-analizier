@@ -1,4 +1,10 @@
 services:
+  pot-provider:
+    image: brainicism/bgutil-ytdlp-pot-provider:1.3.1-deno
+    restart: unless-stopped
+    init: true
+    networks: [app_net]
+
   ollama:
     image: ollama/ollama:latest
     restart: unless-stopped
@@ -100,6 +106,8 @@ services:
     depends_on:
       api:
         condition: service_healthy
+      pot-provider:
+        condition: service_started
     networks: [app_net]
 
   caddy:
