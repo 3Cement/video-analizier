@@ -155,6 +155,7 @@ def _base_ydl_opts() -> dict[str, Any]:
         # The provider runs as a private Compose service and supplies YouTube's
         # proof-of-origin tokens without account cookies.
         "extractor_args": {
+            "youtube": {"player_client": ["mweb"]},
             "youtubepot-bgutilhttp": {"base_url": ["http://pot-provider:4416"]},
         },
     }
